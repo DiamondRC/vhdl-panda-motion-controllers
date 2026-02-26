@@ -1,0 +1,11 @@
+# build files
+build/
+vivado.j*
+vivado.l*
+
+# local tools
+setup_env.sh
+
+# misc
+.vscode/
+.Xil/
