@@ -1,5 +1,5 @@
 # build files
-build/
+build/vivado/*
 vivado.j*
 vivado.l*
 
