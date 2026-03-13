@@ -35,9 +35,6 @@ port (
 
     real_input_i : in std_logic_vector(31 downto 0); -- Measured value
     setpoint_i : in std_logic_vector(31 downto 0); -- Desired value
-    real_output_o : out std_logic_vector(31 downto 0) := (others => '0');
-    err_full_o : out std_logic_vector(31 downto 0) := (others => '0');
-    vel_o : out std_logic_vector(31 downto 0) := (others => '0');
     err_diff_o : out std_logic_vector(31 downto 0) := (others => '0') -- Output value
 );
 end entity pid;
@@ -180,7 +177,7 @@ begin
                 pipeline_counter <= "0000";
                 enable_pipeline <= '0';
 
-            elsif trigger = '1' and (dt_i /= (dt_i'range => '0')) then
+            elsif trigger = '1' and (dt_i /= (others => '0')) then
                 -- Output value and process next
                 real_output_o <= std_logic_vector(round_out);
                 enable_pipeline <= '1';
@@ -202,8 +199,6 @@ begin
                         p_mul <= resize(signed(kp_i), K_INT + K_FRAC) * resize(signed(err_full), P_ERR_INT);
                         i_mul_err <= resize(signed(err_full), ID_ERR_INT) * i_mul_frac_parts;
                         ff_mul <= resize(signed(kff_i), K_INT + K_FRAC) * resize(signed(setpoint_i), FF_SETPOINT_SIZE);
-                        err_full_o <= std_logic_vector(resize(err_full, err_full_o'length));
-                        err_diff_o <= std_logic_vector(resize(err_diff, err_diff_o'length));
                         pipeline_counter <= "0010";
 
                     when "0010" =>
@@ -270,19 +265,3 @@ begin
     end process;
 
 end rtl;
-
-
-
-
-
---ff_vel <= resize(signed(kvff_i), K_INT + K_FRAC) * resize(signed(vel), FF_SETPOINT_SIZE);
---ff_acc <= resize(signed(kaff_i), K_INT + K_FRAC) * resize((signed(vel)-signed(vel_prev)), FF_SETPOINT_SIZE);
---ff_p1 <= resize(signed(kp1ff_i), K_INT + K_FRAC) * resize(signed(pos), FF_SETPOINT_SIZE);
---ff_p0_tmp <= resize(signed(kp0ff_i), K_INT + K_FRAC) * resize(abs(signed(pos)));
-
---ff_partial_sum <= ff_vel + ff_acc + ff_p1;
---ff_p0 <= ff_p0_tmp * resize(signed(pos));
-
---ff_sum <= ff_partial_sum + ff_p0;
-
---ff_scaled <= ff_sum & (DT_FRAC - K_FRAC - 1 downto 0 => '0');
