@@ -61,13 +61,25 @@ package global_constants is
 
 end package global_constants;
 
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+
 package global_subtypes is
     use work.global_constants.all;
 
     subtype panda_port is std_logic_vector(PANDA_PORT_SIZE - 1 downto 0);
 end package global_subtypes;
 
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
 package global_enums is
+
     type pid_state is (
         IDLE,
         STAGE_2,

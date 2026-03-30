@@ -10,14 +10,14 @@ use ieee.numeric_std.all;
 -- Custom packages
 use work.global_constants.all;
 use work.global_enums.all;
-use work.global_constants.all;
+use work.global_subtypes.all;
 
 entity brett_pid is
     port (
         clk_i            : in std_logic;
         init_i           : in std_logic;
 
-        pid_period_1     : in panda_port := (others => '0');
+        pid_period_i     : in panda_port := (others => '0');
 
         kp_i             : in panda_port := (others => '0');
         kv_i             : in panda_port := (others => '0');
@@ -35,7 +35,7 @@ entity brett_pid is
         real_input_i     : in panda_port := (others => '0'); -- Measured value
         setpoint_i       : in panda_port := (others => '0'); -- Desired value
 
-        err_diff_o       : out panda_port := (others => '0') -- Output value
+        real_output_o    : out panda_port := (others => '0') -- Output value
     );
 end entity brett_pid;
 
@@ -128,9 +128,9 @@ begin
             -- so the division interval is constant.
             -- Thus, make 1/dt a constant we multiply by.
             prev_pos     <= signed(real_input_i);
-            vel <= (siged(real_input_i) - signed(prev_pos)) * VEL_CONST;
+            vel <= (signed(real_input_i) - signed(prev_pos)) * VEL_CONST;
 
-            if init_i = '1'
+            if init_i = '1' then
                 -- Error
                 pos_err       <= (others => '0');
 
@@ -183,10 +183,10 @@ begin
                         p_scaled <= p_mul & (P_SCALED_WIDTH - 1 downto 0 => '0');
 
                         -- TMP
-                        v_scaled <= signed(0);
-                        i_scaled <= signed(0);
-                        d_scaled <= signed(0);
-                        ff_scaled <= signed(0);
+                        v_scaled <= (others => '0');
+                        i_scaled <= (others => '0');
+                        d_scaled <= (others => '0');
+                        ff_scaled <= (others => '0');
 
                         state <= STAGE_3;
 
@@ -225,10 +225,10 @@ begin
                                 signed(max_output_i), round_out'length
                             );
                         elsif sum_int < resize(
-                            signed(-max_output_i), sum_int'length
+                            -signed(max_output_i), sum_int'length
                         ) then
                             round_out <= resize(
-                                signed(-max_output_i), round_out'length
+                                -signed(max_output_i), round_out'length
                             );
                         else
                             -- Toggle Direction
@@ -252,9 +252,7 @@ begin
 
                 end case;
             end if;
-
-    end if; -- Clock
-
+        end if;  -- Clock
     end process; -- Main logic
 
 end no_pipeline;
