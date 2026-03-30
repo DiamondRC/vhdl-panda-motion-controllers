@@ -1,0 +1,260 @@
+--------------------------------------------------------------------------------
+--  File:   brett_pid.vhd
+--  Desc:   Attempt implementation matching Brett's PID controller for PandA.
+--------------------------------------------------------------------------------
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+-- Custom packages
+use work.global_constants.all;
+use work.global_enums.all;
+use work.global_constants.all;
+
+entity brett_pid is
+    port (
+        clk_i            : in std_logic;
+        init_i           : in std_logic;
+
+        pid_period_1     : in panda_port := (others => '0');
+
+        kp_i             : in panda_port := (others => '0');
+        kv_i             : in panda_port := (others => '0');
+        ki_i             : in panda_port := (others => '0');
+        kd_i             : in panda_port := (others => '0');
+        kaff_i           : in panda_port := (others => '0');
+        kpff0_i          : in panda_port := (others => '0');
+        kpff1_i          : in panda_port := (others => '0');
+
+        dir_toggle_i     : in panda_port := (others => '0');
+        dt_i             : in panda_port := (others => '0');
+        max_integral_i   : in panda_port := (others => '0');
+        max_output_i     : in panda_port := (others => '0');
+
+        real_input_i     : in panda_port := (others => '0'); -- Measured value
+        setpoint_i       : in panda_port := (others => '0'); -- Desired value
+
+        err_diff_o       : out panda_port := (others => '0') -- Output value
+    );
+end entity brett_pid;
+
+architecture no_pipeline of brett_pid is
+    -- PID clock
+    -- 625 is ~200kHz
+    signal clk_count  : unsigned(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal trigger    : std_logic
+        := '0';
+
+    -- Master clock
+    signal prev_pos   : signed(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal vel        : signed(VEL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+
+    -- P term
+    signal p_mul      : signed(P_MUL_SIZE -1 downto 0)
+        := (others => '0');
+    signal p_scaled   : signed(P_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+
+    -- V term
+    signal v_scaled   : signed(V_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+
+    -- I term
+    signal i_scaled   : signed(I_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+
+    -- D term
+    signal d_scaled   : signed(D_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+
+    -- FF term
+    signal ff_scaled  : signed(FF_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+
+    -- Sum term
+    signal sum_scaled : signed(SUM_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+    signal sum_int    : signed(SUM_INT_SIZE - 1 downto 0)   
+        := (others => '0');
+
+    -- Misc
+    signal do_work    : std_logic
+        := '0';
+    signal state      : pid_state
+        := IDLE;
+    signal round_out  : signed(real_output_o'range)
+        := (others => '0');
+
+begin
+    process(clk_i)
+    -- Creates a local clock which is some
+    -- number of ticks slower than the master
+    -- PandA clock.
+    begin
+        if rising_edge(clk_i) then
+            if init_i = '1' then
+                trigger <= '0';
+                clk_count <= (others => '0');
+            else
+                if clk_count = unsigned(pid_period_i) - 1 then
+                    trigger <= '1';
+                    clk_count <= (others => '0');
+                else
+                    trigger <= '0';
+                    clk_count <= clk_count + 1;
+                end if; -- Update count
+            end if; -- Process reset
+        end if; -- Clock
+    end process;
+
+
+    -- Main logic
+    process(clk_i)
+    begin
+        if rising_edge(clk_i) then
+            -- Handle master processes
+
+            -- Calculate the position error
+            pos_err   <= signed(setpoint_i) - signed(real_input_i);
+
+            -- Calculate the velocity
+            -- This is performed on the master clock,
+            -- so the division interval is constant.
+            -- Thus, make 1/dt a constant we multiply by.
+            prev_pos     <= signed(real_input_i);
+            vel <= (siged(real_input_i) - signed(prev_pos)) * VEL_CONST;
+
+            if init_i = '1'
+                -- Error
+                pos_err       <= (others => '0');
+
+                -- Velocity
+                prev_pos      <= (others => '0');
+                vel           <= (others => '0');
+
+                -- P term
+                p_mul         <= (others => '0');
+                p_scaled      <= (others => '0');
+
+                -- V term
+                v_scaled      <= (others => '0');
+
+                -- I term
+                i_scaled      <= (others => '0');
+
+                -- D term
+                d_scaled      <= (others => '0');
+
+                -- FF term
+                ff_scaled     <= (others => '0');
+
+                -- Sum
+                sum_scaled    <= (others => '0');
+                sum_int       <= (others => '0');
+                
+                -- Misc
+                round_out     <= (others => '0');
+                real_output_o <= (others => '0');
+                do_work       <= '0';
+
+            elsif trigger = '1' then
+                -- Output stored work
+                real_output_o <= std_logic_vector(round_out);
+                do_work <= '1';
+
+            elsif do_work = '1' then
+                -- Do work
+                case state is
+                    when IDLE =>
+                        -- Begin calculation
+                        p_mul <= resize(signed(kp_i), KP_I_SIZE) *
+                                 resize(signed(pos_err  ), POS_ERR_SIZE);
+                        state <= STAGE_2;
+
+                    when STAGE_2 => 
+                        -- Resize proportional to same fixed
+                        -- point width as the other terms.
+                        p_scaled <= p_mul & (P_SCALED_WIDTH - 1 downto 0 => '0');
+
+                        -- TMP
+                        v_scaled <= signed(0);
+                        i_scaled <= signed(0);
+                        d_scaled <= signed(0);
+                        ff_scaled <= signed(0);
+
+                        state <= STAGE_3;
+
+                    when STAGE_3 => 
+                        sum_scaled <= resize(
+                            (
+                                p_scaled +
+                                v_scaled +
+                                i_scaled +
+                                d_scaled +
+                                ff_scaled
+                            ), sum_scaled'length
+                        );
+                        state <= STAGE_4;
+                    
+                    when STAGE_4 => 
+                        sum_int    <= resize(
+                                shift_right(
+                                    sum_scaled +
+                                    shift_right(
+                                        sum_scaled,
+                                        MAX_FRAC_SIZE - 1
+                                    ),
+                                    MAX_FRAC_SIZE
+                                ), 
+                                sum_int   'length
+                            );
+                        state <= DONE;
+
+                    when DONE => 
+                        -- Output value and clean-up
+                        if sum_int > resize(
+                            signed(max_output_i), sum_int'length
+                        ) then
+                            round_out <= resize(
+                                signed(max_output_i), round_out'length
+                            );
+                        elsif sum_int < resize(
+                            signed(-max_output_i), sum_int'length
+                        ) then
+                            round_out <= resize(
+                                signed(-max_output_i), round_out'length
+                            );
+                        else
+                            -- Toggle Direction
+                            if dir_toggle_i(0) = '1' then
+                                round_out <= resize(
+                                    -sum_int, round_out'length
+                                );
+                            else
+                                round_out <= resize(
+                                    sum_int, round_out'length
+                                );
+                            end if;
+                        end if;
+
+                        state <= IDLE;
+                        do_work <= '0';
+
+                    when others =>
+                        state <= IDLE;
+                        do_work <= '0';
+
+                end case;
+            end if;
+
+    end if; -- Clock
+
+    end process; -- Main logic
+
+end no_pipeline;
