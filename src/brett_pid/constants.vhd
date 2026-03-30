@@ -10,12 +10,16 @@ package global_constants is
 
     ---------------------------- Inputs ----------------------------
 
-    constant KP_I_INT : natural := 10 + 1; -- includes signed
+    constant DT_INT    : natural := 0 + 1;
+    constant DT_FRAC   : natural := 21;     -- 5e-6 @ 10% error
+    constant KP_I_INT  : natural := 10 + 1; -- includes signed
     constant KP_I_FRAC : natural := 21;
+    constant KI_I_INT  : natural := 10 + 1; -- includes signed
+    constant KI_I_FRAC : natural := 21;
 
     ---------------------------- Misc ------------------------------
 
-    constant MAX_FRAC_SIZE : natural := 25;
+    constant DT_SIZE       : natural := DT_INT + DT_FRAC;
 
     ---------------------------- Error -----------------------------
 
@@ -27,11 +31,13 @@ package global_constants is
 
     ---------------------------- P term ----------------------------
 
-    constant KP_I_SIZE : natural := KP_I_INT + KP_I_FRAC;
-    constant P_MUL_SIZE : natural := KP_I_SIZE + POS_ERR_SIZE;
+    constant KP_I_SIZE      : natural := KP_I_INT + KP_I_FRAC;
+    constant P_MUL_SIZE     : natural := KP_I_SIZE + POS_ERR_SIZE;
+
     -- Pad the difference in fractional size to the result
-    constant P_SCALED_WIDTH : natural := MAX_FRAC_SIZE - KP_I_FRAC;
-    constant P_SCALED_SIZE : natural := P_MUL_SIZE + P_SCALED_WIDTH;
+    constant P_SCALED_WIDTH : natural := DT_FRAC - KP_I_FRAC;
+    constant P_SCALED_SIZE  : natural := P_MUL_SIZE +
+                                         P_SCALED_WIDTH;
 
     ---------------------------- V term ----------------------------
 
@@ -39,7 +45,19 @@ package global_constants is
 
     ---------------------------- I term ----------------------------
 
-    constant I_SCALED_SIZE : natural := 1;
+    constant KI_I_SIZE      : natural := KI_I_INT + KI_I_FRAC;
+    constant I_MUL_DT_SIZE  : natural := KI_I_SIZE + DT_SIZE;
+    constant I_MUL_ERR_SIZE : natural := POS_ERR_SIZE + 
+                                         I_MUL_DT_SIZE;
+    constant I_SCA_PRT_SIZE : natural := KI_I_INT +
+                                         POS_ERR_SIZE +
+                                         DT_SIZE;
+
+    -- Number of bits to assign to addition.
+    -- Should fine tune.   
+    constant I_ACCUM_BUFFER : natural := 8;   
+    constant I_SCALED_SIZE  : natural := I_ACCUM_BUFFER +
+                                         I_SCA_PRT_SIZE;
 
     ---------------------------- D term ----------------------------
 
@@ -57,7 +75,7 @@ package global_constants is
                                           FF_SCALED_SIZE;
     -- Remove global fraction  
     constant SUM_INT_SIZE : natural := SUM_SCALED_SIZE -
-                                       MAX_FRAC_SIZE;
+                                       DT_FRAC;
 
 end package global_constants;
 
@@ -85,6 +103,8 @@ package global_enums is
         STAGE_2,
         STAGE_3,
         STAGE_4,
+        STAGE_5,
+        STAGE_6,
         DONE
     );
 

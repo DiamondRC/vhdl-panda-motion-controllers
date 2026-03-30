@@ -40,21 +40,6 @@ entity brett_pid is
 end entity brett_pid;
 
 architecture no_pipeline of brett_pid is
-    -- PID clock
-    -- 625 is ~200kHz
-    signal clk_count  : unsigned(PANDA_PORT_SIZE - 1 downto 0)
-        := (others => '0');
-    signal trigger    : std_logic
-        := '0';
-
-    -- Master clock
-    signal prev_pos   : signed(PANDA_PORT_SIZE - 1 downto 0)
-        := (others => '0');
-    signal vel        : signed(VEL_SIZE - 1 downto 0)
-        := (others => '0');
-    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
-        := (others => '0');
-
     -- P term
     signal p_mul      : signed(P_MUL_SIZE -1 downto 0)
         := (others => '0');
@@ -66,6 +51,12 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
 
     -- I term
+    signal i_mul_dt   : signed(I_MUL_DT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal i_mul_err  : signed(I_MUL_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal i_sca_part : signed(I_SCA_PRT_SIZE - 1 downto 0)
+        := (others => '0');
     signal i_scaled   : signed(I_SCALED_SIZE - 1 downto 0)
         := (others => '0');
 
@@ -83,6 +74,24 @@ architecture no_pipeline of brett_pid is
     signal sum_int    : signed(SUM_INT_SIZE - 1 downto 0)   
         := (others => '0');
 
+    -- Master clock
+    signal prev_pos   : signed(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal vel        : signed(VEL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal max_i_term : signed(i_scaled'length - 1 downto 0)
+        := (others => '0');
+
+    -- PID clock
+    -- 625 is ~200kHz
+    signal clk_count  : unsigned(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal trigger    : std_logic
+        := '0';
+
+    
     -- Misc
     signal do_work    : std_logic
         := '0';
@@ -121,14 +130,20 @@ begin
             -- Handle master processes
 
             -- Calculate the position error
-            pos_err   <= signed(setpoint_i) - signed(real_input_i);
+            pos_err  <= signed(setpoint_i) - signed(real_input_i);
 
             -- Calculate the velocity
             -- This is performed on the master clock,
             -- so the division interval is constant.
             -- Thus, make 1/dt a constant we multiply by.
-            prev_pos     <= signed(real_input_i);
-            vel <= (signed(real_input_i) - signed(prev_pos)) * VEL_CONST;
+            prev_pos <= signed(real_input_i);
+            vel      <= (
+                            signed(real_input_i) - signed(prev_pos)
+                        ) * VEL_CONST;
+
+            -- Scale integral limit to fixed point
+            max_i_term <= shift_left(resize(signed(max_integral_i), max_i_term'length), DT_FRAC);
+            
 
             if init_i = '1' then
                 -- Error
@@ -146,6 +161,9 @@ begin
                 v_scaled      <= (others => '0');
 
                 -- I term
+                i_mul_dt      <= (others => '0');
+                i_mul_err     <= (others => '0');
+                i_sca_part    <= (others => '0');
                 i_scaled      <= (others => '0');
 
                 -- D term
@@ -159,6 +177,7 @@ begin
                 sum_int       <= (others => '0');
                 
                 -- Misc
+                max_i_term    <= (others => '0');
                 round_out     <= (others => '0');
                 real_output_o <= (others => '0');
                 do_work       <= '0';
@@ -171,26 +190,65 @@ begin
             elsif do_work = '1' then
                 -- Do work
                 case state is
-                    when IDLE =>
+                    when IDLE    =>
                         -- Begin calculation
-                        p_mul <= resize(signed(kp_i), KP_I_SIZE) *
-                                 resize(signed(pos_err  ), POS_ERR_SIZE);
-                        state <= STAGE_2;
+                        p_mul    <= resize(signed(kp_i), KP_I_SIZE) *
+                                   --  resize(signed(pos_err), POS_ERR_SIZE);
+                                   pos_err;
 
-                    when STAGE_2 => 
+                        i_mul_dt <= resize(signed(ki_i), KI_I_SIZE) *
+                                    resize(signed(dt_i), DT_SIZE);
+
+                        state    <= STAGE_2;
+
+                    when STAGE_2  => 
                         -- Resize proportional to same fixed
                         -- point width as the other terms.
-                        p_scaled <= p_mul & (P_SCALED_WIDTH - 1 downto 0 => '0');
+                        p_scaled  <= p_mul &
+                                    (P_SCALED_WIDTH - 1 downto 0 => '0');
+
+                        i_mul_err <= pos_err * i_mul_dt;
 
                         -- TMP
-                        v_scaled <= (others => '0');
-                        i_scaled <= (others => '0');
-                        d_scaled <= (others => '0');
+                        v_scaled  <= (others => '0');
+                        d_scaled  <= (others => '0');
                         ff_scaled <= (others => '0');
 
-                        state <= STAGE_3;
+                        state     <= STAGE_3;
+                    
+                    when STAGE_3   =>
+                        -- Scale integral part back to Ki from Dt
+                        -- fractional size.
+                        i_sca_part <= resize(
+                            shift_right(
+                                i_mul_err + 
+                                shift_right(
+                                    i_mul_err, DT_FRAC - 1
+                                ),
+                            DT_FRAC), 
+                            i_sca_part'length);
 
-                    when STAGE_3 => 
+                        state      <= STAGE_4;
+
+                    when STAGE_4     =>
+                        -- Accumulate integral parts.
+                        if (i_scaled + i_sca_part) >
+                            max_i_term 
+                        then
+                            i_scaled <= max_i_term;
+
+                        elsif (i_scaled + i_sca_part) <
+                            -max_i_term
+                        then
+                            i_scaled <= -max_i_term;
+
+                        else
+                            i_scaled <= i_scaled + i_sca_part;
+                        end if;
+
+                        state        <= STAGE_5;
+
+                    when STAGE_5 => 
                         sum_scaled <= resize(
                             (
                                 p_scaled +
@@ -200,21 +258,21 @@ begin
                                 ff_scaled
                             ), sum_scaled'length
                         );
-                        state <= STAGE_4;
+                        state <= STAGE_6;
                     
-                    when STAGE_4 => 
-                        sum_int    <= resize(
+                    when STAGE_6 => 
+                        sum_int  <= resize(
                                 shift_right(
                                     sum_scaled +
                                     shift_right(
                                         sum_scaled,
-                                        MAX_FRAC_SIZE - 1
+                                        DT_FRAC - 1
                                     ),
-                                    MAX_FRAC_SIZE
+                                    DT_FRAC
                                 ), 
                                 sum_int   'length
                             );
-                        state <= DONE;
+                        state    <= DONE;
 
                     when DONE => 
                         -- Output value and clean-up
@@ -243,11 +301,11 @@ begin
                             end if;
                         end if;
 
-                        state <= IDLE;
+                        state   <= IDLE;
                         do_work <= '0';
 
                     when others =>
-                        state <= IDLE;
+                        state   <= IDLE;
                         do_work <= '0';
 
                 end case;
