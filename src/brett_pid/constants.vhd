@@ -13,6 +13,8 @@ package global_constants is
 
     constant DT_INT    : natural := 10 + 1;
     constant DT_FRAC   : natural := 21;     -- 5e-6 @ 10% error
+    constant DT_I_INT  : natural := 10 + 1;
+    constant DT_I_FRAC : natural := 21;     -- 5e-6 @ 10% error
     constant KP_I_INT  : natural := 10 + 1; -- includes signed
     constant KP_I_FRAC : natural := 21;
     constant KI_I_INT  : natural := 10 + 1; -- includes signed
@@ -20,13 +22,15 @@ package global_constants is
     constant KD_I_INT  : natural := 10 + 1; -- includes signed
     constant KD_I_FRAC : natural := 21;
 
-    ---------------------------- Misc ------------------------------
+    ---------------------------- DT --------------------------------
 
-    constant DT_SIZE : natural := DT_INT + DT_FRAC;
+    constant DT_SIZE   : natural := DT_INT + DT_FRAC;
+    constant DT_I_SIZE : natural := DT_I_INT + DT_I_FRAC;
 
     ---------------------------- Error -----------------------------
 
     constant POS_ERR_SIZE : natural := 32;
+    constant D_ERR_SIZE : natural := POS_ERR_SIZE;
 
     ---------------------------- Velocity --------------------------
 
@@ -66,8 +70,10 @@ package global_constants is
 
     ---------------------------- D term ----------------------------
 
-    constant KD_I_SIZE     : natural := KD_I_INT + KD_I_FRAC;
-    constant D_SCALED_SIZE : natural := 1;
+    constant KD_I_SIZE      : natural := KD_I_INT + KD_I_FRAC;
+    constant D_MUL_DT_SIZE  : natural := KD_I_SIZE + DT_I_SIZE;
+    constant D_MUL_ERR_SIZE : natural := D_MUL_DT_SIZE + D_ERR_SIZE;
+    constant D_SCALED_SIZE  : natural := D_MUL_ERR_SIZE - DT_I_FRAC;
 
     ---------------------------- FF term ---------------------------
 

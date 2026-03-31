@@ -27,9 +27,10 @@ entity brett_pid is
         kpff0_i          : in panda_port := (others => '0');
         kpff1_i          : in panda_port := (others => '0');
 
+        do_vel_diff_i    : in panda_port := (others => '0');
         dir_toggle_i     : in panda_port := (others => '0');
         dt_i             : in panda_port := (others => '0');
-        dt_inverse_i     : in panda_port := (others => '0');
+        dt_inv_i         : in panda_port := (others => '0');
         max_integral_i   : in panda_port := (others => '0');
         max_output_i     : in panda_port := (others => '0');
 
@@ -62,6 +63,10 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
 
     -- D term
+    signal d_mul_dt   : signed(D_MUL_DT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal d_mul_err  : signed(D_MUL_ERR_SIZE - 1 downto 0)
+        := (others => '0');
     signal d_scaled   : signed(D_SCALED_SIZE - 1 downto 0)
         := (others => '0');
 
@@ -92,14 +97,17 @@ architecture no_pipeline of brett_pid is
     signal trigger    : std_logic
         := '0';
 
-    
+    -- Error
+    signal prev_err   : signed(POS_ERR_SIZE - 1 downto 0);
+
     -- Misc
+    signal d_err      : signed(D_ERR_SIZE - 1 downto 0);
     signal do_work    : std_logic
         := '0';
     signal state      : pid_state
         := IDLE;
     signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0);
-        -- := (others => '0');
+
 
 begin
     process(clk_i)
@@ -133,6 +141,7 @@ begin
             -- Calculate the position error
             pos_err  <= signed(setpoint_i) - signed(real_input_i);
 
+            -- TODO - move into main logic?
             -- Calculate the velocity
             -- This is performed on the master clock,
             -- so the division interval is constant.
@@ -152,6 +161,8 @@ begin
             if init_i = '1' then
                 -- Error
                 pos_err       <= (others => '0');
+                prev_err      <= (others => '0');
+                d_err         <= (others => '0');
 
                 -- Velocity
                 prev_pos      <= (others => '0');
@@ -171,6 +182,8 @@ begin
                 i_scaled      <= (others => '0');
 
                 -- D term
+                d_mul_dt      <= (others => '0');
+                d_mul_err     <= (others => '0');
                 d_scaled      <= (others => '0');
 
                 -- FF term
@@ -179,7 +192,7 @@ begin
                 -- Sum
                 sum_scaled    <= (others => '0');
                 sum_int       <= (others => '0');
-                
+
                 -- Misc
                 max_i_term    <= (others => '0');
                 round_out     <= (others => '0');
@@ -195,40 +208,48 @@ begin
                 case state is
                     when IDLE    =>
                         -- Begin calculation
-                        p_mul    <= resize(signed(kp_i), KP_I_SIZE) *
-                                    pos_err;
+                        p_mul     <= resize(signed(kp_i), KP_I_SIZE) *
+                                     pos_err;
 
-                        i_mul_dt <= resize(signed(ki_i), KI_I_SIZE) *
-                                    resize(signed(dt_i), DT_SIZE);
+                        i_mul_dt  <= resize(signed(ki_i), KI_I_SIZE) *
+                                     resize(signed(dt_i), DT_SIZE);
                                 
 
-                        -- d_mul    <= resize(signed(kd_i), KD_I_SIZE) * 
-                        --             resize(signed(dt_inverse_i), D_DT_SIZE);
+                        d_mul_dt  <= resize(signed(kd_i), KD_I_SIZE) * 
+                                     resize(signed(dt_inv_i), DT_I_SIZE);
 
-                        state    <= STAGE_2;
+                        -- Update previous error
+                        prev_err  <= pos_err;
+
+                        if do_vel_diff_i(0) = '1' then
+                            -- TODO
+                            -- d_err <= signed(real_input_i) - 
+                            -- signed(prev_position);
+                            d_err <= signed(pos_err) - signed(prev_err);
+                        else
+                            -- Uses last PID work's prev_err
+                            d_err <= signed(pos_err) - signed(prev_err);
+                        end if;
+
+                        state     <= STAGE_2;
 
                     when STAGE_2  => 
-                        p_scaled  <= p_mul;
-
                         i_mul_err <= pos_err * i_mul_dt;
 
-                        -- d_mul_err <= d_mul * resize(
-                        --         signed(err_diff), P_ERR_INT
-                        --     );
+                        d_mul_err <= d_mul_dt * d_err;
 
                         -- TMP
                         v_scaled  <= (others => '0');
-                        d_scaled  <= (others => '0');
                         ff_scaled <= (others => '0');
 
                         state     <= STAGE_3;
                     
-                    when STAGE_3   =>
-                        -- Scale integral part back to smallest
-                        -- fixed point part.
-                        -- Still a fixed point at this stage,
+                    when STAGE_3     =>
+                        -- Scale part back to smallest
+                        -- fixed point.
+                        -- Integral remains fixed point at this stage,
                         -- round after adding to the sum.
-                        i_sca_part <= resize(
+                        i_sca_part   <= resize(
                             shift_right(
                                 i_mul_err + 
                                 shift_right(
@@ -238,7 +259,27 @@ begin
                             DT_FRAC), 
                             i_sca_part'length);
 
-                        state      <= STAGE_4;
+                        d_scaled     <= resize(
+                            shift_right(
+                                d_mul_err + 
+                                shift_right(
+                                    d_mul_err,
+                                    DT_FRAC
+                                ),
+                            DT_FRAC), 
+                            i_sca_part'length);
+
+                        -- Pad terms if there's more precision in one
+                        -- term than the others
+                        -- TODO - integral, derivative term.
+                        if P_SCALED_WIDTH /= 0 then
+                            p_scaled <= p_mul &
+                                    (P_SCALED_WIDTH - 1 downto 0 => '0');
+                        else
+                            p_scaled <= p_mul;
+                        end if;
+
+                        state        <= STAGE_4;
 
                     when STAGE_4     =>
                         -- Accumulate integral parts.

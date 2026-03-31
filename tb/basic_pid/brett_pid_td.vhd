@@ -28,9 +28,10 @@ architecture rtl of brett_pid_tb is
     signal kpff0_i        : panda_port;
     signal kpff1_i        : panda_port;
 
+    signal do_vel_diff_i  : panda_port;
     signal dir_toggle_i   : panda_port;
     signal dt_i           : panda_port;
-    signal dt_inverse_i   : panda_port;
+    signal dt_inv_i       : panda_port;
     signal max_integral_i : panda_port;
     signal max_output_i   : panda_port;
 
@@ -62,15 +63,16 @@ begin
     init_i         <= '1';
     pid_period_i   <= std_logic_vector(to_signed(3, pid_period_i'length));
     kp_i           <= "0" & "0000000000" & "000000000000000000000";
-    kv_i           <= "0" & "0000000001" & "000000000000000000000";
-    ki_i           <= "0" & "0000000001" & "000000000000000000000";
+    kv_i           <= "0" & "0000000000" & "000000000000000000000";
+    ki_i           <= "0" & "0000000000" & "000000000000000000000";
     kd_i           <= "0" & "0000000001" & "000000000000000000000";
-    kaff_i         <= "0" & "0000000001" & "000000000000000000000";
-    kpff0_i        <= "0" & "0000000001" & "000000000000000000000";
-    kpff1_i        <= "0" & "0000000001" & "000000000000000000000";
+    kaff_i         <= "0" & "0000000000" & "000000000000000000000";
+    kpff0_i        <= "0" & "0000000000" & "000000000000000000000";
+    kpff1_i        <= "0" & "0000000000" & "000000000000000000000";
+    do_vel_diff_i  <= std_logic_vector(to_unsigned(0, do_vel_diff_i'length));
     dir_toggle_i   <= std_logic_vector(to_signed(0, dir_toggle_i'length));
     dt_i           <= "0" & "0000000001" & "000000000000000000000";
-    dt_inverse_i   <= "0" & "0000000001" & "000000000000000000000";
+    dt_inv_i       <= "0" & "0000000111" & "000000000000000000000";
     max_integral_i <= std_logic_vector(to_signed(200000, max_integral_i'length));
     max_output_i   <= std_logic_vector(to_signed(200000, max_output_i'length));
     real_input_i   <= std_logic_vector(to_signed(0, real_input_i'length));
@@ -83,7 +85,7 @@ begin
     wait until rising_edge(clk_i);
     wait until rising_edge(clk_i);
 
-    for i in 0 to 21 loop
+    for i in 0 to 30 loop
         wait until rising_edge(clk_i);
         -- do something each cycle
     end loop;
@@ -108,9 +110,10 @@ UUT: entity work.brett_pid
         kpff0_i,
         kpff1_i,
 
+        do_vel_diff_i,
         dir_toggle_i,
         dt_i,
-        dt_inverse_i,
+        dt_inv_i,
         max_integral_i,
         max_output_i,
 
