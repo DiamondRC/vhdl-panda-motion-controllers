@@ -29,6 +29,7 @@ entity brett_pid is
 
         dir_toggle_i     : in panda_port := (others => '0');
         dt_i             : in panda_port := (others => '0');
+        dt_inverse_i     : in panda_port := (others => '0');
         max_integral_i   : in panda_port := (others => '0');
         max_output_i     : in panda_port := (others => '0');
 
@@ -81,7 +82,7 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
     signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
         := (others => '0');
-    signal max_i_term : signed(i_scaled'length - 1 downto 0)
+    signal max_i_term : signed(MAX_I_SIZE - 1 downto 0)
         := (others => '0');
 
     -- PID clock
@@ -97,8 +98,8 @@ architecture no_pipeline of brett_pid is
         := '0';
     signal state      : pid_state
         := IDLE;
-    signal round_out  : signed(real_output_o'range)
-        := (others => '0');
+    signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0);
+        -- := (others => '0');
 
 begin
     process(clk_i)
@@ -143,6 +144,9 @@ begin
 
             -- Scale integral limit to fixed point
             max_i_term <= shift_left(resize(signed(max_integral_i), max_i_term'length), DT_FRAC);
+
+            -- Output stored work
+            real_output_o <= std_logic_vector(round_out);
             
 
             if init_i = '1' then
@@ -183,8 +187,7 @@ begin
                 do_work       <= '0';
 
             elsif trigger = '1' then
-                -- Output stored work
-                real_output_o <= std_logic_vector(round_out);
+                -- Start logic next master clock
                 do_work <= '1';
 
             elsif do_work = '1' then
@@ -193,21 +196,25 @@ begin
                     when IDLE    =>
                         -- Begin calculation
                         p_mul    <= resize(signed(kp_i), KP_I_SIZE) *
-                                   --  resize(signed(pos_err), POS_ERR_SIZE);
-                                   pos_err;
+                                    pos_err;
 
                         i_mul_dt <= resize(signed(ki_i), KI_I_SIZE) *
                                     resize(signed(dt_i), DT_SIZE);
+                                
+
+                        -- d_mul    <= resize(signed(kd_i), KD_I_SIZE) * 
+                        --             resize(signed(dt_inverse_i), D_DT_SIZE);
 
                         state    <= STAGE_2;
 
                     when STAGE_2  => 
-                        -- Resize proportional to same fixed
-                        -- point width as the other terms.
-                        p_scaled  <= p_mul &
-                                    (P_SCALED_WIDTH - 1 downto 0 => '0');
+                        p_scaled  <= p_mul;
 
                         i_mul_err <= pos_err * i_mul_dt;
+
+                        -- d_mul_err <= d_mul * resize(
+                        --         signed(err_diff), P_ERR_INT
+                        --     );
 
                         -- TMP
                         v_scaled  <= (others => '0');
@@ -217,13 +224,16 @@ begin
                         state     <= STAGE_3;
                     
                     when STAGE_3   =>
-                        -- Scale integral part back to Ki from Dt
-                        -- fractional size.
+                        -- Scale integral part back to smallest
+                        -- fixed point part.
+                        -- Still a fixed point at this stage,
+                        -- round after adding to the sum.
                         i_sca_part <= resize(
                             shift_right(
                                 i_mul_err + 
                                 shift_right(
-                                    i_mul_err, DT_FRAC - 1
+                                    i_mul_err,
+                                    DT_FRAC - 1
                                 ),
                             DT_FRAC), 
                             i_sca_part'length);
@@ -233,14 +243,22 @@ begin
                     when STAGE_4     =>
                         -- Accumulate integral parts.
                         if (i_scaled + i_sca_part) >
-                            max_i_term 
+                            resize(
+                                max_i_term, i_scaled'length
+                            )
                         then
-                            i_scaled <= max_i_term;
+                            i_scaled <= resize(
+                                max_i_term, i_scaled'length
+                            );
 
                         elsif (i_scaled + i_sca_part) <
-                            -max_i_term
+                            resize(
+                                -max_i_term, i_scaled'length
+                            )
                         then
-                            i_scaled <= -max_i_term;
+                            i_scaled <= resize(
+                                -max_i_term, i_scaled'length
+                            );
 
                         else
                             i_scaled <= i_scaled + i_sca_part;
@@ -261,17 +279,35 @@ begin
                         state <= STAGE_6;
                     
                     when STAGE_6 => 
-                        sum_int  <= resize(
+                        -- Check the sign of the sum and round
+                        -- appropriately.
+                        if sum_scaled >= 0 then
+                            sum_int <= resize(
                                 shift_right(
-                                    sum_scaled +
+                                    sum_scaled + 
                                     shift_right(
                                         sum_scaled,
-                                        DT_FRAC - 1
+                                        DT_FRAC
                                     ),
                                     DT_FRAC
-                                ), 
-                                sum_int   'length
+                                ),
+                                sum_int'length
                             );
+                        else
+                            -- Avoids negative values rounding
+                            -- towards -inf instead of 0.
+                            sum_int <= resize(
+                                shift_right(
+                                    sum_scaled - 
+                                    shift_right(
+                                        sum_scaled,
+                                        DT_FRAC
+                                    ),
+                                    DT_FRAC
+                                ),
+                                sum_int'length
+                            );
+                        end if;
                         state    <= DONE;
 
                     when DONE => 

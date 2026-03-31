@@ -5,21 +5,24 @@ use ieee.numeric_std.all;
 package global_constants is
     ---------------------------- PandA -----------------------------
 
-    constant VEL_CONST : natural := 125000000;
-    constant PANDA_PORT_SIZE : natural := 32;
+    constant VEL_CONST         : natural := 125000000;
+    constant PANDA_PORT_SIZE   : natural := 32;
+    constant MASTER_CLK_PERIOD : time    := 8 ns; -- 125 MHz clk
 
     ---------------------------- Inputs ----------------------------
 
-    constant DT_INT    : natural := 0 + 1;
+    constant DT_INT    : natural := 10 + 1;
     constant DT_FRAC   : natural := 21;     -- 5e-6 @ 10% error
     constant KP_I_INT  : natural := 10 + 1; -- includes signed
     constant KP_I_FRAC : natural := 21;
     constant KI_I_INT  : natural := 10 + 1; -- includes signed
     constant KI_I_FRAC : natural := 21;
+    constant KD_I_INT  : natural := 10 + 1; -- includes signed
+    constant KD_I_FRAC : natural := 21;
 
     ---------------------------- Misc ------------------------------
 
-    constant DT_SIZE       : natural := DT_INT + DT_FRAC;
+    constant DT_SIZE : natural := DT_INT + DT_FRAC;
 
     ---------------------------- Error -----------------------------
 
@@ -56,11 +59,14 @@ package global_constants is
     -- Number of bits to assign to addition.
     -- Should fine tune.   
     constant I_ACCUM_BUFFER : natural := 8;   
+    constant MAX_I_SIZE     : natural := PANDA_PORT_SIZE +
+                                         DT_FRAC;
     constant I_SCALED_SIZE  : natural := I_ACCUM_BUFFER +
                                          I_SCA_PRT_SIZE;
 
     ---------------------------- D term ----------------------------
 
+    constant KD_I_SIZE     : natural := KD_I_INT + KD_I_FRAC;
     constant D_SCALED_SIZE : natural := 1;
 
     ---------------------------- FF term ---------------------------
