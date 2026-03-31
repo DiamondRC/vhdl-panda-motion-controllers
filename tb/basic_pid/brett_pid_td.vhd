@@ -61,20 +61,20 @@ begin
     -- Initial input values
     init_i         <= '1';
     pid_period_i   <= std_logic_vector(to_signed(3, pid_period_i'length));
-    kp_i           <= "0" & "0000000001" & "000000000000000000000";
+    kp_i           <= "0" & "0000000000" & "000000000000000000000";
     kv_i           <= "0" & "0000000001" & "000000000000000000000";
-    ki_i           <= "0" & "0000000000" & "000000000000000000000";
+    ki_i           <= "0" & "0000000001" & "000000000000000000000";
     kd_i           <= "0" & "0000000001" & "000000000000000000000";
     kaff_i         <= "0" & "0000000001" & "000000000000000000000";
     kpff0_i        <= "0" & "0000000001" & "000000000000000000000";
     kpff1_i        <= "0" & "0000000001" & "000000000000000000000";
     dir_toggle_i   <= std_logic_vector(to_signed(0, dir_toggle_i'length));
-    dt_i           <= "0" & "0001110001" & "000000000000000000000";
+    dt_i           <= "0" & "0000000001" & "000000000000000000000";
     dt_inverse_i   <= "0" & "0000000001" & "000000000000000000000";
     max_integral_i <= std_logic_vector(to_signed(200000, max_integral_i'length));
     max_output_i   <= std_logic_vector(to_signed(200000, max_output_i'length));
-    real_input_i   <= std_logic_vector(to_signed(100, real_input_i'length));
-    setpoint_i     <= std_logic_vector(to_signed(0, setpoint_i'length));
+    real_input_i   <= std_logic_vector(to_signed(0, real_input_i'length));
+    setpoint_i     <= std_logic_vector(to_signed(-100, setpoint_i'length));
 
     -- Begin waiting 
     wait until rising_edge(clk_i);

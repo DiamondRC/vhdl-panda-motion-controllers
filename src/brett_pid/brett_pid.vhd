@@ -233,7 +233,7 @@ begin
                                 i_mul_err + 
                                 shift_right(
                                     i_mul_err,
-                                    DT_FRAC - 1
+                                    DT_FRAC
                                 ),
                             DT_FRAC), 
                             i_sca_part'length);
