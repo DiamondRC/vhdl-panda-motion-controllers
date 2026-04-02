@@ -11,16 +11,27 @@ package global_constants is
 
     ---------------------------- Inputs ----------------------------
 
-    constant DT_INT    : natural := 10 + 1;
-    constant DT_FRAC   : natural := 21;     -- 5e-6 @ 10% error
-    constant DT_I_INT  : natural := 10 + 1;
-    constant DT_I_FRAC : natural := 21;     -- 5e-6 @ 10% error
-    constant KP_I_INT  : natural := 10 + 1; -- includes signed
-    constant KP_I_FRAC : natural := 21;
-    constant KI_I_INT  : natural := 10 + 1; -- includes signed
-    constant KI_I_FRAC : natural := 21;
-    constant KD_I_INT  : natural := 10 + 1; -- includes signed
-    constant KD_I_FRAC : natural := 21;
+    -- constant DT_INT    : natural := 10 + 1;
+    -- constant DT_FRAC   : natural := 21;     -- 5e-6 @ 10% error
+    -- constant DT_I_INT  : natural := 10 + 1;
+    -- constant DT_I_FRAC : natural := 21;     -- 5e-6 @ 10% error
+    -- constant KP_I_INT  : natural := 10 + 1; -- includes signed
+    -- constant KP_I_FRAC : natural := 21;
+    -- constant KI_I_INT  : natural := 10 + 1; -- includes signed
+    -- constant KI_I_FRAC : natural := 21;
+    -- constant KD_I_INT  : natural := 10 + 1; -- includes signed
+    -- constant KD_I_FRAC : natural := 21;
+
+    constant DT_INT    : natural := 6 + 1;
+    constant DT_FRAC   : natural := 25;     -- 5e-6 @ 10% error
+    constant DT_I_INT  : natural := 6 + 1;
+    constant DT_I_FRAC : natural := 25;     -- 5e-6 @ 10% error
+    constant KP_I_INT  : natural := 6 + 1; -- includes signed
+    constant KP_I_FRAC : natural := 25;
+    constant KI_I_INT  : natural := 6 + 1; -- includes signed
+    constant KI_I_FRAC : natural := 25;
+    constant KD_I_INT  : natural := 6 + 1; -- includes signed
+    constant KD_I_FRAC : natural := 25;
 
     ---------------------------- DT --------------------------------
 

@@ -14,30 +14,30 @@ use work.global_subtypes.all;
 
 entity brett_pid is
     port (
-        clk_i            : in std_logic;
-        init_i           : in std_logic;
+        clk_i          : in std_logic;
+        init_i         : in std_logic;
 
-        pid_period_i     : in panda_port := (others => '0');
+        pid_period_i   : in panda_port  := (others => '0');
 
-        kp_i             : in panda_port := (others => '0');
-        kv_i             : in panda_port := (others => '0');
-        ki_i             : in panda_port := (others => '0');
-        kd_i             : in panda_port := (others => '0');
-        kaff_i           : in panda_port := (others => '0');
-        kpff0_i          : in panda_port := (others => '0');
-        kpff1_i          : in panda_port := (others => '0');
+        kp_i           : in panda_port  := (others => '0');
+        kv_i           : in panda_port  := (others => '0');
+        ki_i           : in panda_port  := (others => '0');
+        kd_i           : in panda_port  := (others => '0');
+        kaff_i         : in panda_port  := (others => '0');
+        kpff0_i        : in panda_port  := (others => '0');
+        kpff1_i        : in panda_port  := (others => '0');
 
-        do_vel_diff_i    : in panda_port := (others => '0');
-        dir_toggle_i     : in panda_port := (others => '0');
-        dt_i             : in panda_port := (others => '0');
-        dt_inv_i         : in panda_port := (others => '0');
-        max_integral_i   : in panda_port := (others => '0');
-        max_output_i     : in panda_port := (others => '0');
+        do_vel_diff_i  : in panda_port  := (others => '0');
+        dir_toggle_i   : in panda_port  := (others => '0');
+        dt_i           : in panda_port  := (others => '0');
+        dt_inv_i       : in panda_port  := (others => '0');
+        max_integral_i : in panda_port  := (others => '0');
+        max_output_i   : in panda_port  := (others => '0');
 
-        real_input_i     : in panda_port := (others => '0'); -- Measured value
-        setpoint_i       : in panda_port := (others => '0'); -- Desired value
+        real_input_i   : in panda_port  := (others => '0'); -- Measured value
+        setpoint_i     : in panda_port  := (others => '0'); -- Desired value
 
-        real_output_o    : out panda_port := (others => '0') -- Output value
+        real_output_o  : out panda_port := (others => '0') -- Output value
     );
 end entity brett_pid;
 
@@ -206,7 +206,7 @@ begin
             elsif do_work = '1' then
                 -- Do work
                 case state is
-                    when IDLE    =>
+                    when IDLE     =>
                         -- Begin calculation
                         p_mul     <= resize(signed(kp_i), KP_I_SIZE) *
                                      pos_err;
@@ -317,7 +317,7 @@ begin
                                 ff_scaled
                             ), sum_scaled'length
                         );
-                        state <= STAGE_6;
+                        state      <= STAGE_6;
                     
                     when STAGE_6 => 
                         -- Check the sign of the sum and round
