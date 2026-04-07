@@ -24,6 +24,7 @@ architecture rtl of brett_pid_tb is
     signal kv_i           : panda_port;
     signal ki_i           : panda_port;
     signal kd_i           : panda_port;
+    signal kvff_i         : panda_port;
     signal kaff_i         : panda_port;
     signal kpff0_i        : panda_port;
     signal kpff1_i        : panda_port;
@@ -36,6 +37,7 @@ architecture rtl of brett_pid_tb is
     signal max_output_i   : panda_port;
 
     signal real_input_i   : panda_port;
+    signal v_des_i        : panda_port;
     signal setpoint_i     : panda_port;
 
     signal real_output_o  : panda_port;
@@ -66,6 +68,7 @@ begin
     kv_i           <= "0" & "0000000000" & "000000000000000000000";
     ki_i           <= "0" & "0000000000" & "000000000000000000000";
     kd_i           <= "0" & "0000000001" & "000000000000000000000";
+    kvff_i         <= "0" & "0000000001" & "000000000000000000000";
     kaff_i         <= "0" & "0000000000" & "000000000000000000000";
     kpff0_i        <= "0" & "0000000000" & "000000000000000000000";
     kpff1_i        <= "0" & "0000000000" & "000000000000000000000";
@@ -76,6 +79,7 @@ begin
     max_integral_i <= std_logic_vector(to_signed(200000, max_integral_i'length));
     max_output_i   <= std_logic_vector(to_signed(200000, max_output_i'length));
     real_input_i   <= std_logic_vector(to_signed(0, real_input_i'length));
+    v_des_i        <= std_logic_vector(to_signed(0, v_des_i'length));
     setpoint_i     <= std_logic_vector(to_signed(-100, setpoint_i'length));
 
     -- Begin waiting 
@@ -106,6 +110,7 @@ UUT: entity work.brett_pid
         kv_i,
         ki_i,
         kd_i,
+        kvff_i,
         kaff_i,
         kpff0_i,
         kpff1_i,
@@ -118,6 +123,7 @@ UUT: entity work.brett_pid
         max_output_i,
 
         real_input_i,
+        v_des_i,
         setpoint_i,
 
         real_output_o

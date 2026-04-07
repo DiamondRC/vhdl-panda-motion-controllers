@@ -1,6 +1,6 @@
 --------------------------------------------------------------------------------
---  File:   brett_pid_ff.vhd
---  Desc:   Attempt implementation matching Brett's PID controller for PandA.
+--  File:   generic_pid.vhd
+--  Desc:   Attempt generic PID implementation for PandA.
 --------------------------------------------------------------------------------
 
 library ieee;
@@ -12,7 +12,7 @@ use work.global_constants.all;
 use work.global_enums.all;
 use work.global_subtypes.all;
 
-entity brett_pid is
+entity generic_pid is
     port (
         clk_i          : in std_logic;
         init_i         : in std_logic;
@@ -23,7 +23,6 @@ entity brett_pid is
         kv_i           : in panda_port  := (others => '0');
         ki_i           : in panda_port  := (others => '0');
         kd_i           : in panda_port  := (others => '0');
-        kvff_i         : in panda_port  := (others => '0');
         kaff_i         : in panda_port  := (others => '0');
         kpff0_i        : in panda_port  := (others => '0');
         kpff1_i        : in panda_port  := (others => '0');
@@ -36,14 +35,13 @@ entity brett_pid is
         max_output_i   : in panda_port  := (others => '0');
 
         real_input_i   : in panda_port  := (others => '0'); -- Measured value
-        v_des_i        : in panda_port  := (others => '0'); -- Commanded Velocity
         setpoint_i     : in panda_port  := (others => '0'); -- Desired value
 
         real_output_o  : out panda_port := (others => '0') -- Output value
     );
-end entity brett_pid;
+end entity generic_pid;
 
-architecture no_pipeline of brett_pid is
+architecture no_pipeline of generic_pid is
     -- P term
     signal p_mul      : signed(P_MUL_SIZE -1 downto 0)
         := (others => '0');
@@ -51,10 +49,6 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
 
     -- V term
-    signal prev_v_des : signed(PREV_V_DES_SIZE - 1 downto 0)
-        := (others => '0');
-    signal v_mul      : signed(V_MUL_SIZE - 1 downto 0)
-        := (others => '0');
     signal v_scaled   : signed(V_SCALED_SIZE - 1 downto 0)
         := (others => '0');
 
@@ -77,22 +71,6 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
 
     -- FF term
-    signal v_des_mul  : signed(V_DES_MUL_SIZE - 1 downto 0)
-        := (others => '0');
-    signal v_des_sca  : signed(V_DES_SCA_SIZE - 1 downto 0)
-        := (others => '0');
-    signal a_des_sub  : signed(A_DES_SUB_SIZE - 1 downto 0)
-        := (others => '0');
-    signal a_des_mul  : signed(A_DES_MUL_SIZE - 1 downto 0)
-        := (others => '0');
-    signal a_des_sca  : signed(A_DES_SCA_SIZE - 1 downto 0)
-        := (others => '0');
-    signal p1_des_mul : signed(P1_DES_MUL_SIZE - 1 downto 0)
-        := (others => '0');
-    signal p0_des_abs : signed(P0_DES_ABS_SIZE - 1 downto 0)
-        := (others => '0');
-    signal p0_des_mul : signed(P0_DES_MUL_SIZE - 1 downto 0)
-        := (others => '0');
     signal ff_scaled  : signed(FF_SCALED_SIZE - 1 downto 0)
         := (others => '0');
 
@@ -188,7 +166,6 @@ begin
 
                 -- Velocity
                 prev_pos      <= (others => '0');
-                prev_v_des    <= (others => '0');
                 vel           <= (others => '0');
 
                 -- P term
@@ -196,7 +173,6 @@ begin
                 p_scaled      <= (others => '0');
 
                 -- V term
-                v_mul         <= (others => '0');
                 v_scaled      <= (others => '0');
 
                 -- I term
@@ -211,14 +187,6 @@ begin
                 d_scaled      <= (others => '0');
 
                 -- FF term
-                v_des_mul     <= (others => '0');
-                v_des_sca     <= (others => '0');
-                a_des_sub     <= (others => '0');
-                a_des_mul     <= (others => '0');
-                a_des_sca     <= (others => '0');
-                p1_des_mul    <= (others => '0');
-                p0_des_abs    <= (others => '0');
-                p0_des_mul    <= (others => '0');
                 ff_scaled     <= (others => '0');
 
                 -- Sum
@@ -238,36 +206,20 @@ begin
             elsif do_work = '1' then
                 -- Do work
                 case state is
-                    when IDLE      =>
-                        -- Main terms
-                        p_mul      <= resize(signed(kp_i), KP_I_SIZE) *
-                                      pos_err;
+                    when IDLE     =>
+                        -- Begin calculation
+                        p_mul     <= resize(signed(kp_i), KP_I_SIZE) *
+                                     pos_err;
 
-                        v_mul      <= resize(signed(kv_i), KV_I_SIZE) *
-                                      resize(signed(v_des_i), V_DES_SIZE)
+                        i_mul_dt  <= resize(signed(ki_i), KI_I_SIZE) *
+                                     resize(signed(dt_i), DT_SIZE);
+                                
 
-                        i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
-                                      resize(signed(dt_i), DT_SIZE);
-
-                        d_mul_dt   <= resize(signed(kd_i), KD_I_SIZE) * 
-                                      resize(signed(dt_inv_i), DT_I_SIZE);
-
-                        -- FF terms
-                        v_des_mul  <= resize(signed(kvff_i), KVFF_I_SIZE) * 
-                                      resize(signed(v_des_i), V_DES_SIZE);
-
-                        a_des_sub  <= resize(signed(v_des_i), V_DES_SIZE) -
-                                      prev_v_des;
-
-                        p1_des_mul <= resize(signed(kp1ff_i), KP1FF_I_SIZE) * 
-                                      signed(setpoint_i);
-
-                        p0_des_abs <= resize(signed(kp0ff_i), KP0FF_I_SIZE) * 
-                                      abs(signed(setpoint_i));
+                        d_mul_dt  <= resize(signed(kd_i), KD_I_SIZE) * 
+                                     resize(signed(dt_inv_i), DT_I_SIZE);
 
                         -- Update previous error
-                        prev_err   <= pos_err;
-                        prev_v_des <= v_des_i;
+                        prev_err  <= pos_err;
 
                         if do_vel_diff_i(0) = '1' then
                             -- TODO
@@ -281,17 +233,17 @@ begin
 
                         state     <= STAGE_2;
 
-                    when STAGE_2   => 
-                        i_mul_err  <= pos_err * i_mul_dt;
+                    when STAGE_2  => 
+                        i_mul_err <= pos_err * i_mul_dt;
 
-                        d_mul_err  <= d_mul_dt * d_err;
+                        -- d_mul_err <= d_mul_dt * d_err;
+                        d_mul_err <= d_mul_dt * (-signed(real_input_i));
 
-                        a_des_mul  <= resize(signed(kaff_i), KAFF_I_SIZE) * 
-                                      a_des_sub;
-                        
-                        p0_des_mul <= p0_des_abs * resize(setpoint_i);
+                        -- TMP
+                        v_scaled  <= (others => '0');
+                        ff_scaled <= (others => '0');
 
-                        state      <= STAGE_3;
+                        state     <= STAGE_3;
                     
                     when STAGE_3     =>
                         -- Scale part back to smallest
@@ -317,28 +269,6 @@ begin
                                 ),
                             DT_FRAC), 
                             i_sca_part'length);
-
-
-                        v_des_sca  <= resize(
-                            shift_right(
-                                v_des_mul + 
-                                shift_right(
-                                    v_des_mul,
-                                    DT_FRAC
-                                ),
-                            DT_FRAC), 
-                            i_sca_part'length);
-
-                        a_des_sca  <= resize(
-                            shift_right(
-                                a_des_mul + 
-                                shift_right(
-                                    a_des_mul,
-                                    DT_FRAC
-                                ),
-                            DT_FRAC), 
-                            i_sca_part'length);
-
 
                         -- Pad terms if there's more precision in one
                         -- term than the others
