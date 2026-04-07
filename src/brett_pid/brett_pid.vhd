@@ -244,7 +244,7 @@ begin
                                       pos_err;
 
                         v_mul      <= resize(signed(kv_i), KV_I_SIZE) *
-                                      resize(signed(v_des_i), V_DES_SIZE)
+                                      resize(signed(v_des_i), V_DES_SIZE);
 
                         i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
                                       resize(signed(dt_i), DT_SIZE);
@@ -259,15 +259,15 @@ begin
                         a_des_sub  <= resize(signed(v_des_i), V_DES_SIZE) -
                                       prev_v_des;
 
-                        p1_des_mul <= resize(signed(kp1ff_i), KP1FF_I_SIZE) * 
+                        p1_des_mul <= resize(signed(kpff1_i), KP1FF_I_SIZE) * 
                                       signed(setpoint_i);
 
-                        p0_des_abs <= resize(signed(kp0ff_i), KP0FF_I_SIZE) * 
+                        p0_des_abs <= resize(signed(kpff0_i), KP0FF_I_SIZE) * 
                                       abs(signed(setpoint_i));
 
                         -- Update previous error
                         prev_err   <= pos_err;
-                        prev_v_des <= v_des_i;
+                        prev_v_des <= signed(v_des_i);
 
                         if do_vel_diff_i(0) = '1' then
                             -- TODO
@@ -289,7 +289,7 @@ begin
                         a_des_mul  <= resize(signed(kaff_i), KAFF_I_SIZE) * 
                                       a_des_sub;
                         
-                        p0_des_mul <= p0_des_abs * resize(setpoint_i);
+                        p0_des_mul <= p0_des_abs * signed(setpoint_i);
 
                         state      <= STAGE_3;
                     
@@ -298,7 +298,7 @@ begin
                         -- fixed point.
                         -- Integral remains fixed point at this stage,
                         -- round after adding to the sum.
-                        i_sca_part   <= resize(
+                        i_sca_part  <= resize(
                             shift_right(
                                 i_mul_err + 
                                 shift_right(
@@ -308,7 +308,7 @@ begin
                             DT_FRAC), 
                             i_sca_part'length);
 
-                        d_scaled     <= resize(
+                        d_scaled    <= resize(
                             shift_right(
                                 d_mul_err + 
                                 shift_right(
@@ -316,7 +316,7 @@ begin
                                     DT_FRAC
                                 ),
                             DT_FRAC), 
-                            i_sca_part'length);
+                            d_scaled'length);
 
 
                         v_des_sca  <= resize(
@@ -327,7 +327,7 @@ begin
                                     DT_FRAC
                                 ),
                             DT_FRAC), 
-                            i_sca_part'length);
+                            v_des_sca'length);
 
                         a_des_sca  <= resize(
                             shift_right(
@@ -337,7 +337,7 @@ begin
                                     DT_FRAC
                                 ),
                             DT_FRAC), 
-                            i_sca_part'length);
+                            a_des_sca'length);
 
 
                         -- Pad terms if there's more precision in one
@@ -385,6 +385,10 @@ begin
                                 v_scaled +
                                 i_scaled +
                                 d_scaled +
+                                v_des_sca +
+                                a_des_sca +
+                                p1_des_mul +
+                                p0_des_mul +
                                 ff_scaled
                             ), sum_scaled'length
                         );

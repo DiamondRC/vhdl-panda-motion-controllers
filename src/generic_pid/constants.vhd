@@ -78,7 +78,7 @@ package global_constants is
     constant V_DES_SIZE      : natural := V_DES_INT + V_DES_FRAC;
     constant PREV_V_DES_SIZE : natural := V_DES_SIZE;
     constant V_MUL_SIZE      : natural := KV_I_SIZE + V_DES_SIZE;
-    constant V_SCALED_SIZE   : natural := 1;
+    constant V_SCALED_SIZE   : natural := V_MUL_SIZE - DT_I_FRAC;
 
     ---------------------------- I term ----------------------------
 
@@ -86,9 +86,7 @@ package global_constants is
     constant I_MUL_DT_SIZE  : natural := KI_I_SIZE + DT_SIZE;
     constant I_MUL_ERR_SIZE : natural := POS_ERR_SIZE + 
                                          I_MUL_DT_SIZE;
-    constant I_SCA_PRT_SIZE : natural := KI_I_INT +
-                                         POS_ERR_SIZE +
-                                         DT_SIZE;
+    constant I_SCA_PRT_SIZE : natural := KI_I_SIZE + POS_ERR_SIZE;
 
     -- Number of bits to assign to addition.
     -- Should fine tune.   
@@ -113,34 +111,90 @@ package global_constants is
     constant KP0FF_I_SIZE    : natural := KP0FF_I_INT + KP0FF_I_FRAC;
 
     constant V_DES_MUL_SIZE  : natural := KVFF_I_SIZE + V_DES_SIZE;
-    constant V_DES_SCA_SIZE  : natural := 1;
+    constant V_DES_SCA_SIZE  : natural := V_DES_MUL_SIZE - DT_I_FRAC;
 
     constant A_DES_SUB_SIZE  : natural := V_DES_SIZE;
-    constant A_DES_MUL_SIZE  : natural := KAFF_I_SIZE *
+    constant A_DES_MUL_SIZE  : natural := KAFF_I_SIZE +
                                           A_DES_SUB_SIZE;
-    constant A_DES_SCA_SIZE  : natural := 1;
+    constant A_DES_SCA_SIZE  : natural := A_DES_MUL_SIZE - DT_I_FRAC;
 
     constant P1_DES_MUL_SIZE : natural := KP1FF_I_SIZE +
                                           PANDA_PORT_SIZE;
+    constant P1_DES_SCA_SIZE : natural := P1_DES_MUL_SIZE;  
     
     constant P0_DES_ABS_SIZE : natural := KP0FF_I_SIZE +
                                           PANDA_PORT_SIZE;
     constant P0_DES_MUL_SIZE : natural := P0_DES_ABS_SIZE + 
                                           PANDA_PORT_SIZE;
+    constant P0_DES_SCA_SIZE : natural := P0_DES_MUL_SIZE;
 
     constant FF_SCALED_SIZE  : natural := 1;
 
     ---------------------------- Sum -------------------------------
-    constant SUM_SCALED_SIZE : natural := P_SCALED_SIZE +
-                                          V_SCALED_SIZE +
-                                          I_SCALED_SIZE +
-                                          D_SCALED_SIZE +
-                                          FF_SCALED_SIZE;
+    type natural_vector is array (natural range <>) of natural;
+    function ceil_log2(n : natural) return natural;
+    function sum_signed_width(sizes : natural_vector) return natural;
+
+    constant widths : natural_vector(0 to 7) := (
+        P_SCALED_SIZE,
+        V_SCALED_SIZE,
+        I_SCALED_SIZE,
+        D_SCALED_SIZE,
+        V_DES_SCA_SIZE,
+        A_DES_SCA_SIZE,
+        P0_DES_SCA_SIZE,
+        P1_DES_SCA_SIZE
+    );
+    constant SUM_SCALED_SIZE : natural := sum_signed_width(widths);
+
     -- Remove global fraction  
     constant SUM_INT_SIZE : natural := SUM_SCALED_SIZE -
                                        DT_FRAC;
 
 end package global_constants;
+
+
+
+package body global_constants is
+
+    function ceil_log2(n : natural) return natural is
+        variable v : natural := n - 1;
+        variable r : natural := 0;
+    begin
+        while v > 0 loop
+            v := v / 2;
+            r := r + 1;
+        end loop;
+        return r;
+    end function;
+
+    -- function sum_signed_width(sizes : natural_vector) return natural is
+    --     variable total_pos : natural := 0;
+    -- begin
+    --     for k in sizes'range loop
+    --         total_pos := total_pos + 2**(sizes(k)-1);
+    --     end loop;
+    --     return ceil_log2(total_pos) + 1;
+    -- end function;
+
+    function sum_signed_width(sizes : natural_vector) return natural is
+        variable max_width : natural := 0;
+        variable acc_width  : natural := 0;
+        begin
+            for k in sizes'range loop
+                if sizes(k) > max_width then
+                    max_width := sizes(k);
+                end if;
+            end loop;
+
+            -- conservative estimate
+            return max_width + ceil_log2(sizes'length) + 1;
+
+    end function;
+
+end package body global_constants;
+
+
 
 
 library ieee;

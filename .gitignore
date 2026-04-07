@@ -6,6 +6,10 @@ vivado.l*
 # local tools
 setup_env.sh
 
+# python
+.venv
+
 # misc
 .vscode/
 .Xil/
+tmp*
