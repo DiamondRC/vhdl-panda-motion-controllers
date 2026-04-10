@@ -242,14 +242,16 @@ begin
                         -- Calculate desired velocity
                         v_des_cal  <= (
                                         signed(setpoint_i) - prev_set
-                                    ) * resize(signed(dt_inv_i), DT_I_SIZE);
+                                    -- ) * resize(signed(dt_inv_i), DT_I_SIZE);
+                                    ) * to_signed(1*(2**DT_I_FRAC), DT_I_SIZE);
 
                         -- Main terms
                         p_mul      <= resize(signed(kp_i), KP_I_SIZE) *
                                       pos_err;
 
                         i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
-                                      resize(signed(dt_i), DT_SIZE);
+                                      to_signed(1*(2**DT_SIZE), DT_FRAC);
+                                    --   resize(signed(dt_i), DT_SIZE);
 
                         d_mul_dt   <= resize(signed(kd_i), KD_I_SIZE) * 
                                       resize(signed(dt_inv_i), DT_I_SIZE);
@@ -303,15 +305,14 @@ begin
                     when STAGE_3   =>
                         -- Scale part back to largest
                         -- fixed point.
-                        -- TODO - handle this global
                         v_scaled   <= -(resize(
                             shift_right(
                                 v_mul + 
                                 shift_right(
                                     v_mul,
-                                    DT_FRAC
+                                    V_SCA_FRAC
                                 ),
-                            DT_FRAC), 
+                            V_SCA_FRAC), 
                             v_scaled'length
                         )
                         );
@@ -321,9 +322,9 @@ begin
                                 i_mul_err + 
                                 shift_right(
                                     i_mul_err,
-                                    DT_FRAC
+                                    I_SCA_FRAC
                                 ),
-                            DT_FRAC), 
+                            I_SCA_FRAC), 
                             i_sca_part'length
                         );
 
@@ -332,9 +333,9 @@ begin
                                 d_mul_err + 
                                 shift_right(
                                     d_mul_err,
-                                    DT_FRAC
+                                    D_SCA_FRAC
                                 ),
-                            DT_FRAC), 
+                            D_SCA_FRAC), 
                             d_scaled'length
                         );
 
@@ -343,9 +344,9 @@ begin
                                 v_des_mul + 
                                 shift_right(
                                     v_des_mul,
-                                    DT_I_FRAC
+                                    V_FF_SCA_FRAC
                                 ),
-                            DT_I_FRAC), 
+                            V_FF_SCA_FRAC), 
                             v_des_sca'length
                         );
 
@@ -363,6 +364,13 @@ begin
                         end if;
 
                         state        <= STAGE_4;
+
+                    -- when STAGE_4     =>
+                    --     if sum_int < resize(
+                    --         signed(max_output_i), sum_int'length
+                    --     ) then
+                    --         i_scaled <= i_scaled + i_sca_part;
+                    --     end if;
 
                     when STAGE_4     =>
                         -- Accumulate integral parts.
@@ -426,9 +434,9 @@ begin
                                     sum_scaled + 
                                     shift_right(
                                         sum_scaled,
-                                        DT_FRAC
+                                        MAX_FRAC
                                     ),
-                                    DT_FRAC
+                                    MAX_FRAC
                                 ),
                                 sum_int'length
                             );

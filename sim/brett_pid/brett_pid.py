@@ -15,7 +15,8 @@ class PID:
         kpff0: float,
         dt: float,
         ff: bool,
-        out_lim: tuple[float, float] | None = None
+        max_dac: int,
+        out_lim: float | None = None
     ) -> None:
         self.kp = kp
         self.kv = kv
@@ -28,19 +29,38 @@ class PID:
         self.dt = dt
         self.ff = ff
         self.inv_dt = 1.0 / dt
+        self.max_dac = max_dac
+        self.output_limits = out_lim
         self.prev_error = 0
         self.prev_process_variable = 0
         self.prev_velocity_desired = 0
         self.prev_setpoint = 0
         self.integral = 0.0
-        self.output_limits = out_lim
+        self.pid_sum = 0.0
+        
 
     def update(self, setpoint: int, process_variable: int) -> int:
         error = setpoint - process_variable
         velocity = (process_variable - self.prev_process_variable) * self.inv_dt
-        velocity_desired = int((setpoint - self.prev_setpoint) * self.inv_dt)
+        # velocity_desired = int((setpoint - self.prev_setpoint) * self.inv_dt)
+        velocity_desired = int((setpoint - self.prev_setpoint))
 
-        self.integral += error * self.dt
+
+        #   if (Mptr->Servo.Integrator > Mptr->Servo.MaxInt) {
+		# 			Mptr->Servo.Integrator = Mptr->Servo.MaxInt;
+		# 	}
+		# 	if (Mptr->Servo.Integrator < -Mptr->Servo.MaxInt) {
+		# 			Mptr->Servo.Integrator = -Mptr->Servo.MaxInt;
+		# 	}
+
+        if self.pid_sum < self.max_dac: #max_dac = 3932
+            self.integral += self.ki * error
+            if self.integral > self.output_limits: #output_limits = max output
+                self.integral = self.output_limits
+            if self.integral < -self.output_limits:
+                self.integral = -self.output_limits
+
+        # self.integral += error * self.dt
         derivative = (error - self.prev_error) * self.inv_dt
 
         if not self.ff:
@@ -53,7 +73,7 @@ class PID:
                 self.kpff0 * abs(setpoint) * setpoint
             )
 
-        pid_sum = int(
+        self.pid_sum = int(
             self.kp * error -
             self.kv * velocity +
             self.ki * self.integral +
@@ -67,10 +87,10 @@ class PID:
         self.prev_setpoint = setpoint
 
         if self.output_limits is not None:
-            lo, hi = self.output_limits
-            pid_sum = max(lo, min(hi, pid_sum))
+            lo, hi = -self.output_limits, self.output_limits
+            self.pid_sum = max(lo, min(hi, self.pid_sum))
 
-        return pid_sum
+        return self.pid_sum
 
 
 def trapezoid_wave_rest(t, T_ramp, T_hold, T_rest, A):
@@ -116,14 +136,15 @@ pid_kwargs = {
     "kaff": 100,
     "kpff1": 0.00196,
     "kpff0": 0,
-    "dt": 1 / 20000,
+    "dt": 1 / 10000,
     "ff": True,
-    "out_lim": None,
+    "max_dac": 28000,
+    "out_lim": 3932,
 }
 
 pid = PID(**pid_kwargs)
 
-fs = 20000
+fs = 10000
 dt = 1 / fs
 duration = 2 * (2 * 6.0 + 1.0 + 1.0)
 
@@ -163,5 +184,5 @@ plt.text(
 )
 plt.xlabel("Time [s]")
 plt.ylabel("Position")
-plt.title("PID demo at 20 kHz")
+plt.title(f"PID demo at {fs} Hz")
 plt.show()

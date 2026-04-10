@@ -35,6 +35,7 @@ package global_constants is
     constant KP0FF_I_FRAC : natural := 25;
 
     -- unfortunately must duplicate, fragile
+    type nat_array_t is array (natural range <>) of natural;
     constant frac_widths  : nat_array_t := (
         DT_FRAC,
         DT_I_FRAC,
@@ -48,9 +49,7 @@ package global_constants is
         KP0FF_I_FRAC
     );
 
-    function ceil_log2(n  : natural) return natural;
-
-    type nat_array_t is array (natural range <>) of natural;
+    function max_nat(a    : nat_array_t) return natural;
 
     constant MAX_FRAC     : natural := max_nat(frac_widths);
 
@@ -83,6 +82,9 @@ package global_constants is
     constant VEL_SIZE        : natural := PANDA_PORT_SIZE + DT_I_SIZE;
     constant V_MUL_SIZE      : natural := KV_I_SIZE + VEL_SIZE;
     constant V_SCALED_SIZE   : natural := V_MUL_SIZE - DT_I_FRAC;
+    constant V_SCA_FRAC      : natural := KV_I_FRAC + 
+                                          DT_I_FRAC -
+                                          MAX_FRAC;
 
     ---------------------------- I term ----------------------------
 
@@ -99,6 +101,9 @@ package global_constants is
                                          DT_FRAC;
     constant I_SCALED_SIZE  : natural := I_ACCUM_BUFFER +
                                          I_SCA_PRT_SIZE;
+    constant I_SCA_FRAC     : natural := DT_FRAC + 
+                                         KI_I_FRAC -
+                                         MAX_FRAC;
 
     ---------------------------- D term ----------------------------
 
@@ -106,6 +111,9 @@ package global_constants is
     constant D_MUL_DT_SIZE  : natural := KD_I_SIZE + DT_I_SIZE;
     constant D_MUL_ERR_SIZE : natural := D_MUL_DT_SIZE + D_ERR_SIZE;
     constant D_SCALED_SIZE  : natural := D_MUL_ERR_SIZE - DT_I_FRAC;
+    constant D_SCA_FRAC     : natural := DT_I_FRAC + 
+                                         KD_I_FRAC -
+                                         MAX_FRAC;
 
     ---------------------------- FF term ---------------------------
 
@@ -118,7 +126,7 @@ package global_constants is
 
     constant V_DES_MUL_SIZE  : natural := KVFF_I_SIZE + V_DES_CAL_SIZE;
     constant V_DES_SCA_SIZE  : natural := V_DES_MUL_SIZE - DT_I_SIZE;
-    constant V_SCA_FRAC      : natural := KVFF_I_SIZE + 
+    constant V_FF_SCA_FRAC   : natural := KVFF_I_FRAC + 
                                           DT_I_FRAC -
                                           MAX_FRAC;
 
