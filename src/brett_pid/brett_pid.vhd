@@ -36,7 +36,6 @@ entity brett_pid is
         max_output_i   : in panda_port  := (others => '0');
 
         real_input_i   : in panda_port  := (others => '0'); -- Measured value
-        v_des_i        : in panda_port  := (others => '0'); -- Commanded Velocity
         setpoint_i     : in panda_port  := (others => '0'); -- Desired value
 
         real_output_o  : out panda_port := (others => '0') -- Output value
@@ -51,8 +50,6 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
 
     -- V term
-    signal prev_v_des : signed(PREV_V_DES_SIZE - 1 downto 0)
-        := (others => '0');
     signal v_mul      : signed(V_MUL_SIZE - 1 downto 0)
         := (others => '0');
     signal v_scaled   : signed(V_SCALED_SIZE - 1 downto 0)
@@ -123,6 +120,12 @@ architecture no_pipeline of brett_pid is
     signal prev_err   : signed(POS_ERR_SIZE - 1 downto 0);
 
     -- Misc
+    signal v_des_cal  : signed(V_DES_CAL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal prev_v_des : signed(V_DES_CAL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal prev_set   : signed(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
     signal d_err      : signed(D_ERR_SIZE - 1 downto 0);
     signal do_work    : std_logic
         := '0';
@@ -163,16 +166,6 @@ begin
             -- Calculate the position error
             pos_err  <= signed(setpoint_i) - signed(real_input_i);
 
-            -- TODO - move into main logic?
-            -- Calculate the velocity
-            -- This is performed on the master clock,
-            -- so the division interval is constant.
-            -- Thus, make 1/dt a constant we multiply by.
-            prev_pos <= signed(real_input_i);
-            vel      <= (
-                            signed(real_input_i) - signed(prev_pos)
-                        ) * VEL_CONST;
-
             -- Scale integral limit to fixed point
             max_i_term <= shift_left(resize(signed(max_integral_i), max_i_term'length), DT_FRAC);
 
@@ -190,6 +183,7 @@ begin
                 prev_pos      <= (others => '0');
                 prev_v_des    <= (others => '0');
                 vel           <= (others => '0');
+                v_des_cal     <= (others => '0');
 
                 -- P term
                 p_mul         <= (others => '0');
@@ -226,6 +220,7 @@ begin
                 sum_int       <= (others => '0');
 
                 -- Misc
+                prev_set      <= (others => '0');
                 max_i_term    <= (others => '0');
                 round_out     <= (others => '0');
                 real_output_o <= (others => '0');
@@ -239,12 +234,19 @@ begin
                 -- Do work
                 case state is
                     when IDLE      =>
+                        -- Measure Velocity
+                        vel        <= (
+                                        signed(real_input_i) - prev_pos
+                                    ) * resize(signed(dt_inv_i), DT_I_SIZE);
+
+                        -- Calculate desired velocity
+                        v_des_cal  <= (
+                                        signed(setpoint_i) - prev_set
+                                    ) * resize(signed(dt_inv_i), DT_I_SIZE);
+
                         -- Main terms
                         p_mul      <= resize(signed(kp_i), KP_I_SIZE) *
                                       pos_err;
-
-                        v_mul      <= resize(signed(kv_i), KV_I_SIZE) *
-                                      resize(signed(v_des_i), V_DES_SIZE);
 
                         i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
                                       resize(signed(dt_i), DT_SIZE);
@@ -253,21 +255,16 @@ begin
                                       resize(signed(dt_inv_i), DT_I_SIZE);
 
                         -- FF terms
-                        v_des_mul  <= resize(signed(kvff_i), KVFF_I_SIZE) * 
-                                      resize(signed(v_des_i), V_DES_SIZE);
-
-                        a_des_sub  <= resize(signed(v_des_i), V_DES_SIZE) -
-                                      prev_v_des;
-
                         p1_des_mul <= resize(signed(kpff1_i), KP1FF_I_SIZE) * 
                                       signed(setpoint_i);
 
                         p0_des_abs <= resize(signed(kpff0_i), KP0FF_I_SIZE) * 
                                       abs(signed(setpoint_i));
 
-                        -- Update previous error
+                        -- Update previous values
+                        prev_pos   <= signed(real_input_i);
+                        prev_set   <= signed(setpoint_i);
                         prev_err   <= pos_err;
-                        prev_v_des <= signed(v_des_i);
 
                         if do_vel_diff_i(0) = '1' then
                             -- TODO
@@ -282,23 +279,44 @@ begin
                         state     <= STAGE_2;
 
                     when STAGE_2   => 
+                        v_mul      <= (
+                                    resize(signed(kv_i), KV_I_SIZE) * vel
+                                    );
+
                         i_mul_err  <= pos_err * i_mul_dt;
 
                         d_mul_err  <= d_mul_dt * d_err;
 
-                        a_des_mul  <= resize(signed(kaff_i), KAFF_I_SIZE) * 
-                                      a_des_sub;
+                        v_des_mul  <= resize(signed(kvff_i), KVFF_I_SIZE) * 
+                                      v_des_cal;
+
+                        a_des_sub  <= v_des_cal - prev_v_des;
                         
                         p0_des_mul <= p0_des_abs * signed(setpoint_i);
 
+                        -- store last desired velocity
+                        -- need to wait tick until calculated
+                        prev_v_des <= v_des_cal;
+
                         state      <= STAGE_3;
                     
-                    when STAGE_3     =>
-                        -- Scale part back to smallest
+                    when STAGE_3   =>
+                        -- Scale part back to largest
                         -- fixed point.
-                        -- Integral remains fixed point at this stage,
-                        -- round after adding to the sum.
-                        i_sca_part  <= resize(
+                        -- TODO - handle this global
+                        v_scaled   <= -(resize(
+                            shift_right(
+                                v_mul + 
+                                shift_right(
+                                    v_mul,
+                                    DT_FRAC
+                                ),
+                            DT_FRAC), 
+                            v_scaled'length
+                        )
+                        );
+
+                        i_sca_part <= resize(
                             shift_right(
                                 i_mul_err + 
                                 shift_right(
@@ -306,9 +324,10 @@ begin
                                     DT_FRAC
                                 ),
                             DT_FRAC), 
-                            i_sca_part'length);
+                            i_sca_part'length
+                        );
 
-                        d_scaled    <= resize(
+                        d_scaled   <= resize(
                             shift_right(
                                 d_mul_err + 
                                 shift_right(
@@ -316,29 +335,22 @@ begin
                                     DT_FRAC
                                 ),
                             DT_FRAC), 
-                            d_scaled'length);
-
+                            d_scaled'length
+                        );
 
                         v_des_sca  <= resize(
                             shift_right(
                                 v_des_mul + 
                                 shift_right(
                                     v_des_mul,
-                                    DT_FRAC
+                                    DT_I_FRAC
                                 ),
-                            DT_FRAC), 
-                            v_des_sca'length);
+                            DT_I_FRAC), 
+                            v_des_sca'length
+                        );
 
-                        a_des_sca  <= resize(
-                            shift_right(
-                                a_des_mul + 
-                                shift_right(
-                                    a_des_mul,
-                                    DT_FRAC
-                                ),
-                            DT_FRAC), 
-                            a_des_sca'length);
-
+                        a_des_mul  <= resize(signed(kaff_i), KAFF_I_SIZE) * 
+                                      a_des_sub;
 
                         -- Pad terms if there's more precision in one
                         -- term than the others
@@ -376,6 +388,17 @@ begin
                             i_scaled <= i_scaled + i_sca_part;
                         end if;
 
+                        a_des_sca    <= resize(
+                            shift_right(
+                                a_des_mul + 
+                                shift_right(
+                                    a_des_mul,
+                                    A_SCA_FRAC
+                                ),
+                            A_SCA_FRAC), 
+                            a_des_sca'length
+                        );
+
                         state        <= STAGE_5;
 
                     when STAGE_5 => 
@@ -394,7 +417,7 @@ begin
                         );
                         state      <= STAGE_6;
                     
-                    when STAGE_6 => 
+                    when STAGE_6    => 
                         -- Check the sign of the sum and round
                         -- appropriately.
                         if sum_scaled >= 0 then
@@ -424,7 +447,7 @@ begin
                                 sum_int'length
                             );
                         end if;
-                        state    <= DONE;
+                        state       <= DONE;
 
                     when DONE => 
                         -- Output value and clean-up

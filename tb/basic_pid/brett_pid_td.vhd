@@ -37,7 +37,6 @@ architecture rtl of brett_pid_tb is
     signal max_output_i   : panda_port;
 
     signal real_input_i   : panda_port;
-    signal v_des_i        : panda_port;
     signal setpoint_i     : panda_port;
 
     signal real_output_o  : panda_port;
@@ -64,23 +63,22 @@ begin
     -- Initial input values
     init_i         <= '1';
     pid_period_i   <= std_logic_vector(to_signed(3, pid_period_i'length));
-    kp_i           <= "0" & "0000000000" & "000000000000000000000";
-    kv_i           <= "0" & "0000000000" & "000000000000000000000";
-    ki_i           <= "0" & "0000000000" & "000000000000000000000";
-    kd_i           <= "0" & "0000000001" & "000000000000000000000";
-    kvff_i         <= "0" & "0000000001" & "000000000000000000000";
-    kaff_i         <= "0" & "0000000000" & "000000000000000000000";
-    kpff0_i        <= "0" & "0000000000" & "000000000000000000000";
-    kpff1_i        <= "0" & "0000000000" & "000000000000000000000";
+    kp_i           <= "0" & "000000" & "0000000000000000000000000";
+    kv_i           <= "0" & "000000" & "0000000000000000000000000";
+    ki_i           <= "0" & "000000" & "0000000000000000000000000";
+    kd_i           <= "0" & "000000" & "0000000000000000000000000";
+    kvff_i         <= "0" & "000001" & "0000000000000000000000000";
+    kaff_i         <= "0" & "000000" & "0000000000000000000000000";
+    kpff0_i        <= "0" & "000000" & "0000000000000000000000000";
+    kpff1_i        <= "0" & "000000" & "0000000000000000000000000";
     do_vel_diff_i  <= std_logic_vector(to_unsigned(0, do_vel_diff_i'length));
     dir_toggle_i   <= std_logic_vector(to_signed(0, dir_toggle_i'length));
-    dt_i           <= "0" & "0000000001" & "000000000000000000000";
-    dt_inv_i       <= "0" & "0000000111" & "000000000000000000000";
+    dt_i           <= "0" & "000001" & "0000000000000000000000000";
+    dt_inv_i       <= "0" & "001010" & "0000000000000000000000000";
     max_integral_i <= std_logic_vector(to_signed(200000, max_integral_i'length));
-    max_output_i   <= std_logic_vector(to_signed(200000, max_output_i'length));
-    real_input_i   <= std_logic_vector(to_signed(0, real_input_i'length));
-    v_des_i        <= std_logic_vector(to_signed(0, v_des_i'length));
-    setpoint_i     <= std_logic_vector(to_signed(-100, setpoint_i'length));
+    max_output_i   <= std_logic_vector(to_signed(2000000000, max_output_i'length));
+    real_input_i   <= std_logic_vector(to_signed(50, real_input_i'length));
+    setpoint_i     <= std_logic_vector(to_signed(1, setpoint_i'length));
 
     -- Begin waiting 
     wait until rising_edge(clk_i);
@@ -123,7 +121,6 @@ UUT: entity work.brett_pid
         max_output_i,
 
         real_input_i,
-        v_des_i,
         setpoint_i,
 
         real_output_o

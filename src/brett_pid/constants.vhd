@@ -5,30 +5,16 @@ use ieee.numeric_std.all;
 package global_constants is
     ---------------------------- PandA -----------------------------
 
-    constant VEL_CONST         : natural := 125000000;
+    -- constant VEL_CONST         : natural := 125000000;
     constant PANDA_PORT_SIZE   : natural := 32;
     constant MASTER_CLK_PERIOD : time    := 8 ns; -- 125 MHz clk
 
     ---------------------------- Inputs ----------------------------
 
-    -- constant DT_INT    : natural := 10 + 1;
-    -- constant DT_FRAC   : natural := 21;     -- 5e-6 @ 10% error
-    -- constant DT_I_INT  : natural := 10 + 1;
-    -- constant DT_I_FRAC : natural := 21;     -- 5e-6 @ 10% error
-    -- constant KP_I_INT  : natural := 10 + 1; -- includes signed
-    -- constant KP_I_FRAC : natural := 21;
-    -- constant KI_I_INT  : natural := 10 + 1; -- includes signed
-    -- constant KI_I_FRAC : natural := 21;
-    -- constant KD_I_INT  : natural := 10 + 1; -- includes signed
-    -- constant KD_I_FRAC : natural := 21;
-
     constant DT_INT       : natural := 6 + 1;
-    constant DT_FRAC      : natural := 25;     -- 5e-6 @ 10% error
-    constant DT_I_INT     : natural := 6 + 1;
-    constant DT_I_FRAC    : natural := 25;     -- 5e-6 @ 10% error
-
-    constant V_DES_INT    : natural := 6 + 1; -- includes signed
-    constant V_DES_FRAC   : natural := 25;
+    constant DT_FRAC      : natural := 25;
+    constant DT_I_INT     : natural := 22 + 1;
+    constant DT_I_FRAC    : natural := 9;
 
     constant KP_I_INT     : natural := 6 + 1; -- includes signed
     constant KP_I_FRAC    : natural := 25;
@@ -41,12 +27,32 @@ package global_constants is
 
     constant KVFF_I_INT   : natural := 6 + 1; -- includes signed
     constant KVFF_I_FRAC  : natural := 25;
-    constant KAFF_I_INT   : natural := 6 + 1; -- includes signed
-    constant KAFF_I_FRAC  : natural := 25;
+    constant KAFF_I_INT   : natural := 11 + 1; -- includes signed
+    constant KAFF_I_FRAC  : natural := 20;
     constant KP1FF_I_INT  : natural := 6 + 1; -- includes signed
     constant KP1FF_I_FRAC : natural := 25;
     constant KP0FF_I_INT  : natural := 6 + 1; -- includes signed
     constant KP0FF_I_FRAC : natural := 25;
+
+    -- unfortunately must duplicate, fragile
+    constant frac_widths  : nat_array_t := (
+        DT_FRAC,
+        DT_I_FRAC,
+        KP_I_FRAC,
+        KV_I_FRAC,
+        KI_I_FRAC,
+        KD_I_FRAC,
+        KVFF_I_FRAC,
+        KAFF_I_FRAC,
+        KP1FF_I_FRAC,
+        KP0FF_I_FRAC
+    );
+
+    function ceil_log2(n  : natural) return natural;
+
+    type nat_array_t is array (natural range <>) of natural;
+
+    constant MAX_FRAC     : natural := max_nat(frac_widths);
 
     ---------------------------- DT ------------------------------
 
@@ -57,11 +63,6 @@ package global_constants is
 
     constant POS_ERR_SIZE : natural := 32;
     constant D_ERR_SIZE   : natural := POS_ERR_SIZE;
-
-    ---------------------------- Master Clk-------------------------
-
-    constant KV_I_SIZE : natural := KV_I_INT + KV_I_FRAC;
-    constant VEL_SIZE  : natural := 32 + 32;
 
     ---------------------------- P term ----------------------------
 
@@ -75,10 +76,13 @@ package global_constants is
 
     ---------------------------- V term ----------------------------
 
-    constant V_DES_SIZE      : natural := V_DES_INT + V_DES_FRAC;
+    constant V_DES_SIZE      : natural := PANDA_PORT_SIZE;
     constant PREV_V_DES_SIZE : natural := V_DES_SIZE;
-    constant V_MUL_SIZE      : natural := KV_I_SIZE + V_DES_SIZE;
-    constant V_SCALED_SIZE   : natural := 1;
+
+    constant KV_I_SIZE       : natural := KV_I_INT + KV_I_FRAC;
+    constant VEL_SIZE        : natural := PANDA_PORT_SIZE + DT_I_SIZE;
+    constant V_MUL_SIZE      : natural := KV_I_SIZE + VEL_SIZE;
+    constant V_SCALED_SIZE   : natural := V_MUL_SIZE - DT_I_FRAC;
 
     ---------------------------- I term ----------------------------
 
@@ -86,9 +90,7 @@ package global_constants is
     constant I_MUL_DT_SIZE  : natural := KI_I_SIZE + DT_SIZE;
     constant I_MUL_ERR_SIZE : natural := POS_ERR_SIZE + 
                                          I_MUL_DT_SIZE;
-    constant I_SCA_PRT_SIZE : natural := KI_I_INT +
-                                         POS_ERR_SIZE +
-                                         DT_SIZE;
+    constant I_SCA_PRT_SIZE : natural := KI_I_SIZE + POS_ERR_SIZE;
 
     -- Number of bits to assign to addition.
     -- Should fine tune.   
@@ -112,35 +114,102 @@ package global_constants is
     constant KP1FF_I_SIZE    : natural := KP1FF_I_INT + KP1FF_I_FRAC;
     constant KP0FF_I_SIZE    : natural := KP0FF_I_INT + KP0FF_I_FRAC;
 
-    constant V_DES_MUL_SIZE  : natural := KVFF_I_SIZE + V_DES_SIZE;
-    constant V_DES_SCA_SIZE  : natural := 1;
+    constant V_DES_CAL_SIZE  : natural := PANDA_PORT_SIZE + DT_I_SIZE;
 
-    constant A_DES_SUB_SIZE  : natural := V_DES_SIZE;
-    constant A_DES_MUL_SIZE  : natural := KAFF_I_SIZE *
+    constant V_DES_MUL_SIZE  : natural := KVFF_I_SIZE + V_DES_CAL_SIZE;
+    constant V_DES_SCA_SIZE  : natural := V_DES_MUL_SIZE - DT_I_SIZE;
+    constant V_SCA_FRAC      : natural := KVFF_I_SIZE + 
+                                          DT_I_FRAC -
+                                          MAX_FRAC;
+
+    constant A_DES_SUB_SIZE  : natural := V_DES_CAL_SIZE;
+    constant A_DES_MUL_SIZE  : natural := KAFF_I_SIZE +
                                           A_DES_SUB_SIZE;
-    constant A_DES_SCA_SIZE  : natural := 1;
+    constant A_DES_SCA_SIZE  : natural := A_DES_MUL_SIZE - DT_I_SIZE;
+    constant A_SCA_FRAC      : natural := KAFF_I_FRAC + 
+                                          DT_I_FRAC -
+                                          MAX_FRAC;
 
     constant P1_DES_MUL_SIZE : natural := KP1FF_I_SIZE +
                                           PANDA_PORT_SIZE;
+    constant P1_DES_SCA_SIZE : natural := P1_DES_MUL_SIZE;  
     
     constant P0_DES_ABS_SIZE : natural := KP0FF_I_SIZE +
                                           PANDA_PORT_SIZE;
     constant P0_DES_MUL_SIZE : natural := P0_DES_ABS_SIZE + 
                                           PANDA_PORT_SIZE;
+    constant P0_DES_SCA_SIZE : natural := P0_DES_MUL_SIZE;
 
     constant FF_SCALED_SIZE  : natural := 1;
 
     ---------------------------- Sum -------------------------------
-    constant SUM_SCALED_SIZE : natural := P_SCALED_SIZE +
-                                          V_SCALED_SIZE +
-                                          I_SCALED_SIZE +
-                                          D_SCALED_SIZE +
-                                          FF_SCALED_SIZE;
+    type natural_vector is array (natural range <>) of natural;
+    function ceil_log2(n : natural) return natural;
+    function sum_signed_width(sizes : natural_vector) return natural;
+
+    constant widths : natural_vector(0 to 7) := (
+        P_SCALED_SIZE,
+        V_SCALED_SIZE,
+        I_SCALED_SIZE,
+        D_SCALED_SIZE,
+        V_DES_SCA_SIZE,
+        A_DES_SCA_SIZE,
+        P0_DES_SCA_SIZE,
+        P1_DES_SCA_SIZE
+    );
+    constant SUM_SCALED_SIZE : natural := sum_signed_width(widths);
+
     -- Remove global fraction  
     constant SUM_INT_SIZE : natural := SUM_SCALED_SIZE -
                                        DT_FRAC;
 
 end package global_constants;
+
+
+package body global_constants is
+
+    function ceil_log2(n : natural) return natural is
+        variable v : natural := n - 1;
+        variable r : natural := 0;
+    begin
+        while v > 0 loop
+            v := v / 2;
+            r := r + 1;
+        end loop;
+        return r;
+    end function;
+
+    function sum_signed_width(sizes : natural_vector) return natural is
+        variable max_width : natural := 0;
+        variable acc_width  : natural := 0;
+        begin
+            for k in sizes'range loop
+                if sizes(k) > max_width then
+                    max_width := sizes(k);
+                end if;
+            end loop;
+
+            -- conservative estimate
+            return max_width + ceil_log2(sizes'length) + 1;
+
+    end function;
+
+    function max_nat(a : nat_array_t) return natural is
+        variable m : natural := a(a'low);
+        begin
+            for i in a'range loop
+                if a(i) > m then
+                    m := a(i);
+                end if;
+            end loop;
+
+            return m;
+
+    end function;
+
+end package body global_constants;
+
+
 
 
 library ieee;
