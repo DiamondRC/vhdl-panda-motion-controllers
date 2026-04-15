@@ -15,8 +15,8 @@ class PID:
         kpff0: float,
         dt: float,
         ff: bool,
-        max_dac: int,
-        out_lim: float | None = None
+        max_dac: int | None = None,
+        int_lim: float | None = None
     ) -> None:
         self.kp = kp
         self.kv = kv
@@ -30,7 +30,7 @@ class PID:
         self.ff = ff
         self.inv_dt = 1.0 / dt
         self.max_dac = max_dac
-        self.output_limits = out_lim
+        self.integral_lim = int_lim
         self.prev_error = 0
         self.prev_process_variable = 0
         self.prev_velocity_desired = 0
@@ -42,25 +42,18 @@ class PID:
     def update(self, setpoint: int, process_variable: int) -> int:
         error = setpoint - process_variable
         velocity = (process_variable - self.prev_process_variable) * self.inv_dt
-        # velocity_desired = int((setpoint - self.prev_setpoint) * self.inv_dt)
-        velocity_desired = int((setpoint - self.prev_setpoint))
-
-
-        #   if (Mptr->Servo.Integrator > Mptr->Servo.MaxInt) {
-		# 			Mptr->Servo.Integrator = Mptr->Servo.MaxInt;
-		# 	}
-		# 	if (Mptr->Servo.Integrator < -Mptr->Servo.MaxInt) {
-		# 			Mptr->Servo.Integrator = -Mptr->Servo.MaxInt;
-		# 	}
-
-        if self.pid_sum < self.max_dac: #max_dac = 3932
-            self.integral += self.ki * error
-            if self.integral > self.output_limits: #output_limits = max output
-                self.integral = self.output_limits
-            if self.integral < -self.output_limits:
-                self.integral = -self.output_limits
+        velocity_desired = int((setpoint - self.prev_setpoint) * self.inv_dt)
+        # velocity_desired = int((setpoint - self.prev_setpoint))
 
         # self.integral += error * self.dt
+        if self.pid_sum < self.max_dac and velocity_desired != 0: #max_dac = 3932
+            self.integral += self.ki * error
+            if self.integral > self.integral_lim: #integral_lim = max output
+                self.integral = self.integral_lim #clears windup
+            if self.integral < -self.integral_lim:
+                self.integral = -self.integral_lim
+
+        
         derivative = (error - self.prev_error) * self.inv_dt
 
         if not self.ff:
@@ -76,7 +69,7 @@ class PID:
         self.pid_sum = int(
             self.kp * error -
             self.kv * velocity +
-            self.ki * self.integral +
+            self.integral +
             self.kd * derivative +
             ff
         )
@@ -86,8 +79,8 @@ class PID:
         self.prev_velocity_desired = velocity_desired
         self.prev_setpoint = setpoint
 
-        if self.output_limits is not None:
-            lo, hi = -self.output_limits, self.output_limits
+        if self.max_dac is not None:
+            lo, hi = -self.max_dac, self.max_dac
             self.pid_sum = max(lo, min(hi, self.pid_sum))
 
         return self.pid_sum
@@ -127,19 +120,34 @@ def trapezoid_wave_rest(t, T_ramp, T_hold, T_rest, A):
     return y
 
 
+# pid_kwargs = {
+#     "kp": 0.004,
+#     "kv": 0.9,
+#     "ki": 0.0002,
+#     "kd": 0,
+#     "kvff": 3.7,
+#     "kaff": 100,
+#     "kpff1": 0.00196,
+#     "kpff0": 0,
+#     "dt": 1 / 10000,
+#     "ff": True,
+#     "max_dac": 3932,
+#     "int_lim": 28000,
+# }
+
 pid_kwargs = {
-    "kp": 0.004,
-    "kv": 0.9,
-    "ki": 0.0002,
+    "kp": 0,
+    "kv": 1,
+    "ki": 0,
     "kd": 0,
-    "kvff": 3.7,
-    "kaff": 100,
-    "kpff1": 0.00196,
+    "kvff": 0,
+    "kaff": 0,
+    "kpff1": 0,
     "kpff0": 0,
     "dt": 1 / 10000,
     "ff": True,
-    "max_dac": 28000,
-    "out_lim": 3932,
+    "max_dac": 280000000,
+    "int_lim": 400000000,
 }
 
 pid = PID(**pid_kwargs)
@@ -159,6 +167,12 @@ setpoints = trapezoid_wave_rest(t, T_ramp, T_hold, T_rest, A)
 setpoint = np.round(setpoints).astype(int)
 
 process_variable = np.full_like(t, 100, dtype=int)
+
+# process_variable = trapezoid_wave_rest(t, T_ramp, T_hold, T_rest, A)
+# process_variable = np.round(process_variable).astype(int)
+
+# setpoint = np.full_like(t, 100, dtype=int)
+
 pid_sum = np.zeros_like(t, dtype=float)
 
 for i in range(len(t)):

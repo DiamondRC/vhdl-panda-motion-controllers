@@ -16,6 +16,9 @@ package global_constants is
     constant DT_I_INT     : natural := 22 + 1;
     constant DT_I_FRAC    : natural := 9;
 
+    constant K_TOT_I_INT  : natural := 1 + 1; -- includes signed
+    constant K_TOT_I_FRAC : natural := 30;
+
     constant KP_I_INT     : natural := 6 + 1; -- includes signed
     constant KP_I_FRAC    : natural := 25;
     constant KV_I_INT     : natural := 6 + 1; -- includes signed
@@ -69,7 +72,7 @@ package global_constants is
     constant P_MUL_SIZE     : natural := KP_I_SIZE + POS_ERR_SIZE;
 
     -- Pad the difference in fractional size to the result
-    constant P_SCALED_WIDTH : natural := DT_FRAC - KP_I_FRAC;
+    constant P_SCALED_WIDTH : natural := MAX_FRAC - KP_I_FRAC;
     constant P_SCALED_SIZE  : natural := P_MUL_SIZE +
                                          P_SCALED_WIDTH;
 
@@ -169,7 +172,23 @@ package global_constants is
 
     -- Remove global fraction  
     constant SUM_INT_SIZE : natural := SUM_SCALED_SIZE -
-                                       DT_FRAC;
+                                       MAX_FRAC;
+
+    ---------------------------- Outputs ---------------------------
+
+    constant K_TOT_I_SIZE     : natural := K_TOT_I_INT + K_TOT_I_FRAC;
+    constant SCALE_MUL_SIZE   : natural := K_TOT_I_SIZE + 
+                                           SUM_INT_SIZE;
+    constant SCALE_OUT_SIZE   : natural := SCALE_MUL_SIZE - 
+                                           K_TOT_I_FRAC;
+    constant SCA_OUT_SCA_FRAC : natural := K_TOT_I_FRAC;
+    constant MAX_OUT_SIZE     : natural := PANDA_PORT_SIZE +
+                                           MAX_FRAC;
+
+
+
+
+
 
 end package global_constants;
 
@@ -245,7 +264,65 @@ package global_enums is
         STAGE_4,
         STAGE_5,
         STAGE_6,
+        STAGE_7,
+        STAGE_8,
+        STAGE_9,
         DONE
     );
 
 end package global_enums;
+
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+package fp_utils is
+    -- Signature
+    function round_sym(
+        s_in        : signed;
+        FRAC_DIFF   : natural;
+        OUT_LEN     : natural
+    ) return signed;
+end package fp_utils;
+
+---
+
+package body fp_utils is
+    -- Logic
+    function round_sym(
+        s_in        : signed;
+        FRAC_DIFF   : natural;
+        OUT_LEN     : natural
+    ) return signed is
+        variable result : signed(OUT_LEN-1 downto 0);
+    begin
+        if s_in >= 0 then
+            -- for positives, add half LSB,
+            -- then shift right by frac_diff
+            result := resize(
+                shift_right(
+                    s_in + to_signed(
+                        2**(FRAC_DIFF-1), s_in'length
+                    ), 
+                    FRAC_DIFF
+                ),
+                result'length
+            );
+        else
+            -- for negatives, subtract half LSB,
+            -- then shift right by frac_diff
+            result := resize(
+                shift_right(
+                    s_in - to_signed(
+                        2**(FRAC_DIFF-1), s_in'length
+                    ), 
+                    FRAC_DIFF
+                ),
+                result'length
+            );
+        end if;
+
+        return result;
+    end function;
+end package body fp_utils;

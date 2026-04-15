@@ -11,6 +11,7 @@ use ieee.numeric_std.all;
 use work.global_constants.all;
 use work.global_enums.all;
 use work.global_subtypes.all;
+use work.fp_utils.all;
 
 entity brett_pid is
     port (
@@ -19,6 +20,7 @@ entity brett_pid is
 
         pid_period_i   : in panda_port  := (others => '0');
 
+        k_tot_i        : in panda_port  := (others => '0');
         kp_i           : in panda_port  := (others => '0');
         kv_i           : in panda_port  := (others => '0');
         ki_i           : in panda_port  := (others => '0');
@@ -90,8 +92,6 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
     signal p0_des_mul : signed(P0_DES_MUL_SIZE - 1 downto 0)
         := (others => '0');
-    signal ff_scaled  : signed(FF_SCALED_SIZE - 1 downto 0)
-        := (others => '0');
 
     -- Sum term
     signal sum_scaled : signed(SUM_SCALED_SIZE - 1 downto 0)
@@ -132,6 +132,9 @@ architecture no_pipeline of brett_pid is
     signal state      : pid_state
         := IDLE;
     signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0);
+    signal sca_mul    : signed(SCALE_MUL_SIZE - 1 downto 0);
+    signal scale_out  : signed(SCALE_OUT_SIZE - 1 downto 0);
+    signal max_out    : signed(MAX_OUT_SIZE - 1 downto 0);
 
 
 begin
@@ -165,9 +168,6 @@ begin
 
             -- Calculate the position error
             pos_err  <= signed(setpoint_i) - signed(real_input_i);
-
-            -- Scale integral limit to fixed point
-            max_i_term <= shift_left(resize(signed(max_integral_i), max_i_term'length), DT_FRAC);
 
             -- Output stored work
             real_output_o <= std_logic_vector(round_out);
@@ -213,7 +213,6 @@ begin
                 p1_des_mul    <= (others => '0');
                 p0_des_abs    <= (others => '0');
                 p0_des_mul    <= (others => '0');
-                ff_scaled     <= (others => '0');
 
                 -- Sum
                 sum_scaled    <= (others => '0');
@@ -223,6 +222,9 @@ begin
                 prev_set      <= (others => '0');
                 max_i_term    <= (others => '0');
                 round_out     <= (others => '0');
+                scale_out     <= (others => '0');
+                max_out       <= (others => '0');
+
                 real_output_o <= (others => '0');
                 do_work       <= '0';
 
@@ -236,21 +238,21 @@ begin
                     when IDLE      =>
                         -- Measure Velocity
                         vel        <= (
-                                        signed(real_input_i) - prev_pos
-                                    ) * resize(signed(dt_inv_i), DT_I_SIZE);
+                            signed(real_input_i) - prev_pos
+                        ) * resize(signed(dt_inv_i), DT_I_SIZE);
 
                         -- Calculate desired velocity
                         v_des_cal  <= (
-                                        signed(setpoint_i) - prev_set
-                                    -- ) * resize(signed(dt_inv_i), DT_I_SIZE);
-                                    ) * to_signed(1*(2**DT_I_FRAC), DT_I_SIZE);
+                            signed(setpoint_i) - prev_set
+                        ) * resize(signed(dt_inv_i), DT_I_SIZE);
+                        -- ) * to_signed(1*(2**DT_I_FRAC), DT_I_SIZE);
 
                         -- Main terms
                         p_mul      <= resize(signed(kp_i), KP_I_SIZE) *
                                       pos_err;
 
                         i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
-                                      to_signed(1*(2**DT_SIZE), DT_FRAC);
+                                      to_signed(1*(2**DT_FRAC), DT_SIZE);
                                     --   resize(signed(dt_i), DT_SIZE);
 
                         d_mul_dt   <= resize(signed(kd_i), KD_I_SIZE) * 
@@ -282,10 +284,11 @@ begin
 
                     when STAGE_2   => 
                         v_mul      <= (
-                                    resize(signed(kv_i), KV_I_SIZE) * vel
-                                    );
+                            resize(signed(kv_i), KV_I_SIZE) * vel
+                        );
 
-                        i_mul_err  <= pos_err * i_mul_dt;
+                        -- use prev_err for consistency
+                        i_mul_err  <= prev_err * i_mul_dt;
 
                         d_mul_err  <= d_mul_dt * d_err;
 
@@ -305,50 +308,80 @@ begin
                     when STAGE_3   =>
                         -- Scale part back to largest
                         -- fixed point.
-                        v_scaled   <= -(resize(
-                            shift_right(
-                                v_mul + 
-                                shift_right(
-                                    v_mul,
-                                    V_SCA_FRAC
-                                ),
-                            V_SCA_FRAC), 
-                            v_scaled'length
-                        )
-                        );
+                        -- v_scaled   <= -(
+                        --     resize(
+                        --         shift_right(
+                        --             v_mul + 
+                        --             shift_right(
+                        --                 v_mul,
+                        --                 V_SCA_FRAC
+                        --             ),
+                        --         V_SCA_FRAC), 
+                        --         v_scaled'length
+                        --     )
+                        -- );
 
-                        i_sca_part <= resize(
-                            shift_right(
-                                i_mul_err + 
-                                shift_right(
-                                    i_mul_err,
-                                    I_SCA_FRAC
-                                ),
-                            I_SCA_FRAC), 
-                            i_sca_part'length
-                        );
+                        v_scaled <= round_sym(v_mul, V_SCA_FRAC, v_scaled'length);
 
-                        d_scaled   <= resize(
-                            shift_right(
-                                d_mul_err + 
-                                shift_right(
-                                    d_mul_err,
-                                    D_SCA_FRAC
-                                ),
-                            D_SCA_FRAC), 
-                            d_scaled'length
-                        );
+                        -- if i_mul_err >= 0 then
+                        --     -- add half LSB, then shift right by frac_diff
+                        --     i_sca_part <= resize(
+                        --         shift_right(
+                        --             i_mul_err + to_signed(
+                        --                 2**(I_SCA_FRAC-1), i_mul_err'length
+                        --             ), I_SCA_FRAC
+                        --         ),
+                        --         i_sca_part'length
+                        --     );
+                        -- else
+                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
+                        --     i_sca_part <= resize(
+                        --         shift_right(
+                        --             i_mul_err - to_signed(
+                        --                 2**(I_SCA_FRAC-1), i_mul_err'length
+                        --             ), I_SCA_FRAC
+                        --         ),
+                        --         i_sca_part'length
+                        --     );
+                        -- end if;
 
-                        v_des_sca  <= resize(
-                            shift_right(
-                                v_des_mul + 
-                                shift_right(
-                                    v_des_mul,
-                                    V_FF_SCA_FRAC
-                                ),
-                            V_FF_SCA_FRAC), 
-                            v_des_sca'length
-                        );
+                        i_sca_part <= round_sym(i_mul_err, I_SCA_FRAC, i_sca_part'length);
+
+                        -- if u >= 0 then
+                        --     -- add half LSB, then shift right by frac_diff
+                        --     temp := u + to_signed(2**(frac_diff-1), u'length);
+                        --     rounded := shift_right(temp, frac_diff);
+                        -- else
+                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
+                        --     temp := u - to_signed(2**(frac_diff-1), u'length);
+                        --     rounded := shift_right(temp, frac_diff);
+                        -- end if;
+
+                        -- d_scaled   <= resize(
+                        --     shift_right(
+                        --         d_mul_err + 
+                        --         shift_right(
+                        --             d_mul_err,
+                        --             D_SCA_FRAC
+                        --         ),
+                        --     D_SCA_FRAC), 
+                        --     d_scaled'length
+                        -- );
+
+                        d_scaled <= round_sym(d_mul_err, D_SCA_FRAC, d_scaled'length);
+
+                        -- v_des_sca  <= resize(
+                        --     shift_right(
+                        --         v_des_mul + 
+                        --         shift_right(
+                        --             v_des_mul,
+                        --             V_FF_SCA_FRAC
+                        --         ),
+                        --     V_FF_SCA_FRAC), 
+                        --     v_des_sca'length
+                        -- );
+
+                        v_des_sca <= round_sym(v_des_mul, V_FF_SCA_FRAC, v_des_sca'length);
 
                         a_des_mul  <= resize(signed(kaff_i), KAFF_I_SIZE) * 
                                       a_des_sub;
@@ -363,53 +396,80 @@ begin
                             p_scaled <= p_mul;
                         end if;
 
+                        -- -- Scale max limit to fixed point
+                        -- max_out   <= shift_left(
+                        --     resize(
+                        --         signed(max_output_i),
+                        --         max_out'length
+                        --     ),
+                        --     MAX_FRAC
+                        -- );
+
                         state        <= STAGE_4;
 
-                    -- when STAGE_4     =>
-                    --     if sum_int < resize(
-                    --         signed(max_output_i), sum_int'length
-                    --     ) then
-                    --         i_scaled <= i_scaled + i_sca_part;
-                    --     end if;
-
                     when STAGE_4     =>
-                        -- Accumulate integral parts.
-                        if (i_scaled + i_sca_part) >
-                            resize(
-                                max_i_term, i_scaled'length
-                            )
+                        -- if sum_int < max_out and v_des /= 0 then
+                        if sum_int < resize(
+                            signed(max_output_i), sum_int'length
+                        ) and (
+                            v_des_cal /= to_signed(0, V_DES_CAL_SIZE)
+                        )
                         then
-                            i_scaled <= resize(
-                                max_i_term, i_scaled'length
-                            );
-
-                        elsif (i_scaled + i_sca_part) <
-                            resize(
-                                -max_i_term, i_scaled'length
-                            )
-                        then
-                            i_scaled <= resize(
-                                -max_i_term, i_scaled'length
-                            );
-
-                        else
                             i_scaled <= i_scaled + i_sca_part;
                         end if;
 
-                        a_des_sca    <= resize(
-                            shift_right(
-                                a_des_mul + 
-                                shift_right(
-                                    a_des_mul,
-                                    A_SCA_FRAC
-                                ),
-                            A_SCA_FRAC), 
-                            a_des_sca'length
+                        -- Scale integral limit to fixed point
+                        -- Always positive.
+                        max_i_term   <= shift_left(
+                            resize(
+                                signed(max_integral_i),
+                                max_i_term'length
+                            ),
+                            MAX_FRAC
                         );
 
                         state        <= STAGE_5;
 
-                    when STAGE_5 => 
+                    when STAGE_5     =>
+                        -- if sum_int < max_out and v_des /= 0 then
+                        if sum_int < resize(
+                            signed(max_output_i), sum_int'length
+                        ) and (
+                            v_des_cal /= to_signed(0, V_DES_CAL_SIZE)
+                        ) then
+                            if i_scaled > resize(
+                                max_i_term, i_scaled'length
+                            ) then
+                                i_scaled <= resize(
+                                    max_i_term, i_scaled'length
+                                );
+                            end if;
+
+                            if i_scaled < resize(
+                                -max_i_term, i_scaled'length
+                            ) then
+                                i_scaled <= resize(
+                                    -max_i_term, i_scaled'length
+                                );
+                            end if;
+                        end if;
+
+                        -- a_des_sca    <= resize(
+                        --     shift_right(
+                        --         a_des_mul + 
+                        --         shift_right(
+                        --             a_des_mul,
+                        --             A_SCA_FRAC
+                        --         ),
+                        --     A_SCA_FRAC), 
+                        --     a_des_sca'length
+                        -- );
+
+                        a_des_sca <= round_sym(a_des_mul, A_SCA_FRAC, a_des_sca'length);
+
+                        state        <= STAGE_6;
+
+                    when STAGE_6 => 
                         sum_scaled <= resize(
                             (
                                 p_scaled +
@@ -419,54 +479,85 @@ begin
                                 v_des_sca +
                                 a_des_sca +
                                 p1_des_mul +
-                                p0_des_mul +
-                                ff_scaled
+                                p0_des_mul
                             ), sum_scaled'length
                         );
-                        state      <= STAGE_6;
-                    
-                    when STAGE_6    => 
+                        state      <= STAGE_7;
+
+                    when STAGE_7    => 
                         -- Check the sign of the sum and round
                         -- appropriately.
-                        if sum_scaled >= 0 then
-                            sum_int <= resize(
-                                shift_right(
-                                    sum_scaled + 
-                                    shift_right(
-                                        sum_scaled,
-                                        MAX_FRAC
-                                    ),
-                                    MAX_FRAC
-                                ),
-                                sum_int'length
-                            );
-                        else
-                            -- Avoids negative values rounding
-                            -- towards -inf instead of 0.
-                            sum_int <= resize(
-                                shift_right(
-                                    sum_scaled - 
-                                    shift_right(
-                                        sum_scaled,
-                                        DT_FRAC
-                                    ),
-                                    DT_FRAC
-                                ),
-                                sum_int'length
-                            );
-                        end if;
-                        state       <= DONE;
+                        -- if sum_scaled >= 0 then
+                        --     -- add half LSB, then shift right by frac_diff
+                        --     sum_int <= resize(
+                        --         shift_right(
+                        --             sum_scaled + to_signed(
+                        --                 2**(MAX_FRAC-1), sum_scaled'length
+                        --             ), MAX_FRAC
+                        --         ),
+                        --         sum_int'length
+                        --     );
+                        -- else
+                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
+                        --     sum_int <= resize(
+                        --         shift_right(
+                        --             sum_scaled - to_signed(
+                        --                 2**(MAX_FRAC-1), sum_scaled'length
+                        --             ), MAX_FRAC
+                        --         ),
+                        --         sum_int'length
+                        --     );
+                        -- end if;
+
+                        sum_int <= round_sym(sum_scaled, MAX_FRAC, sum_int'length);
+
+
+                        state       <= STAGE_8;
+
+                    when STAGE_8  =>
+                        sca_mul   <= resize(signed(k_tot_i), K_TOT_I_SIZE) *
+                                     sum_int;
+
+                        state     <= STAGE_9;
+
+                    when STAGE_9  =>
+                        -- Will over/underflow, no clamp
+                        -- if sca_mul >= 0 then
+                        --     -- add half LSB, then shift right by frac_diff
+                        --     scale_out <= resize(
+                        --         shift_right(
+                        --             sca_mul + to_signed(
+                        --                 2**(SCA_OUT_SCA_FRAC-1), sca_mul'length
+                        --             ), SCA_OUT_SCA_FRAC
+                        --         ),
+                        --         scale_out'length
+                        --     );
+                        -- else
+                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
+                        --     scale_out <= resize(
+                        --         shift_right(
+                        --             sca_mul - to_signed(
+                        --                 2**(SCA_OUT_SCA_FRAC-1), sca_mul'length
+                        --             ), SCA_OUT_SCA_FRAC
+                        --         ),
+                        --         scale_out'length
+                        --     );
+                        -- end if;
+
+                        scale_out <= round_sym(sca_mul, SCA_OUT_SCA_FRAC, scale_out'length);
+
+                        state     <= DONE;
 
                     when DONE => 
                         -- Output value and clean-up
-                        if sum_int > resize(
-                            signed(max_output_i), sum_int'length
+                        if scale_out > resize(
+                            signed(max_output_i), scale_out'length
                         ) then
                             round_out <= resize(
                                 signed(max_output_i), round_out'length
                             );
-                        elsif sum_int < resize(
-                            -signed(max_output_i), sum_int'length
+                        elsif scale_out < resize(
+                            -signed(max_output_i), scale_out'length
                         ) then
                             round_out <= resize(
                                 -signed(max_output_i), round_out'length
@@ -475,11 +566,11 @@ begin
                             -- Toggle Direction
                             if dir_toggle_i(0) = '1' then
                                 round_out <= resize(
-                                    -sum_int, round_out'length
+                                    -scale_out, round_out'length
                                 );
                             else
                                 round_out <= resize(
-                                    sum_int, round_out'length
+                                    scale_out, round_out'length
                                 );
                             end if;
                         end if;

@@ -20,6 +20,7 @@ architecture rtl of brett_pid_tb is
 
     signal pid_period_i   : panda_port;
 
+    signal k_tot_i        : panda_port;
     signal kp_i           : panda_port;
     signal kv_i           : panda_port;
     signal ki_i           : panda_port;
@@ -63,11 +64,12 @@ begin
     -- Initial input values
     init_i         <= '1';
     pid_period_i   <= std_logic_vector(to_signed(3, pid_period_i'length));
+    k_tot_i        <= "0" & "1" & "000000000000000000000000000000";
     kp_i           <= "0" & "000000" & "0000000000000000000000000";
-    kv_i           <= "0" & "000000" & "0000000000000000000000000";
+    kv_i           <= "0" & "000001" & "0000000000000000000000000";
     ki_i           <= "0" & "000000" & "0000000000000000000000000";
     kd_i           <= "0" & "000000" & "0000000000000000000000000";
-    kvff_i         <= "0" & "000001" & "0000000000000000000000000";
+    kvff_i         <= "0" & "000000" & "0000000000000000000000000";
     kaff_i         <= "0" & "000000" & "0000000000000000000000000";
     kpff0_i        <= "0" & "000000" & "0000000000000000000000000";
     kpff1_i        <= "0" & "000000" & "0000000000000000000000000";
@@ -83,9 +85,13 @@ begin
     -- Begin waiting 
     wait until rising_edge(clk_i);
     init_i         <= '0';
+    real_input_i   <= std_logic_vector(to_signed(100, real_input_i'length));
     wait until rising_edge(clk_i);
+    real_input_i   <= std_logic_vector(to_signed(200, real_input_i'length));
     wait until rising_edge(clk_i);
+    real_input_i   <= std_logic_vector(to_signed(400, real_input_i'length));
     wait until rising_edge(clk_i);
+    real_input_i   <= std_logic_vector(to_signed(800, real_input_i'length));
 
     for i in 0 to 30 loop
         wait until rising_edge(clk_i);
@@ -104,6 +110,7 @@ UUT: entity work.brett_pid
 
         pid_period_i,
 
+        k_tot_i,
         kp_i,
         kv_i,
         ki_i,
