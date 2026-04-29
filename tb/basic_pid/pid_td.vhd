@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---  File:   generic_pid_tb.vhd
+--  File:   pid_tb.vhd
 --  Desc:   Testbed for generic PID controller on PandA.
 --------------------------------------------------------------------------------
 
@@ -12,22 +12,17 @@ use work.global_constants.all;
 use work.global_enums.all;
 use work.global_subtypes.all;
 
-entity generic_pid_tb is  end;
+entity pid_tb is  end;
 
-architecture rtl of generic_pid_tb is
+architecture rtl of pid_tb is
     signal clk_i          : std_logic := '0';
     signal init_i         : std_logic := '0';
 
     signal pid_period_i   : panda_port;
 
     signal kp_i           : panda_port;
-    signal kv_i           : panda_port;
     signal ki_i           : panda_port;
     signal kd_i           : panda_port;
-    signal kvff_i         : panda_port;
-    signal kaff_i         : panda_port;
-    signal kpff0_i        : panda_port;
-    signal kpff1_i        : panda_port;
 
     signal do_vel_diff_i  : panda_port;
     signal dir_toggle_i   : panda_port;
@@ -65,13 +60,8 @@ begin
     init_i         <= '1';
     pid_period_i   <= std_logic_vector(to_signed(3, pid_period_i'length));
     kp_i           <= "0" & "0000000000" & "000000000000000000000";
-    kv_i           <= "0" & "0000000000" & "000000000000000000000";
     ki_i           <= "0" & "0000000000" & "000000000000000000000";
     kd_i           <= "0" & "0000000001" & "000000000000000000000";
-    kvff_i         <= "0" & "0000000001" & "000000000000000000000";
-    kaff_i         <= "0" & "0000000000" & "000000000000000000000";
-    kpff0_i        <= "0" & "0000000000" & "000000000000000000000";
-    kpff1_i        <= "0" & "0000000000" & "000000000000000000000";
     do_vel_diff_i  <= std_logic_vector(to_unsigned(0, do_vel_diff_i'length));
     dir_toggle_i   <= std_logic_vector(to_signed(0, dir_toggle_i'length));
     dt_i           <= "0" & "0000000001" & "000000000000000000000";
@@ -99,7 +89,7 @@ begin
     wait;
 end process;
 
-UUT: entity work.generic_pid
+UUT: entity work.pid
     port map (
         clk_i,
         init_i,
@@ -107,13 +97,8 @@ UUT: entity work.generic_pid
         pid_period_i,
 
         kp_i,
-        kv_i,
         ki_i,
         kd_i,
-        kvff_i,
-        kaff_i,
-        kpff0_i,
-        kpff1_i,
 
         do_vel_diff_i,
         dir_toggle_i,

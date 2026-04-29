@@ -1,96 +1,126 @@
 --------------------------------------------------------------------------------
---  File:       pid.vhd
---  Desc:       Implementation of an outer PID loop which controls position.
+--  File:   pid.vhd
+--  Desc:   A generic cascaded PID to control with PVTs.
 --------------------------------------------------------------------------------
-
--- We assume the input rate of the data will always be greater than the servo-rate of the PID.
-
 
 library ieee;
 use ieee.std_logic_1164.all;
-use ieee.std_logic_signed.all;
 use ieee.numeric_std.all;
-use work.cascaded_consts.all;
 
-entity pid is 
-port (
-    clk_i : in std_logic;
-    init_i : in std_logic;
+-- Custom packages
+use work.global_constants.all;
+use work.global_enums.all;
+use work.global_subtypes.all;
+use work.fp_utils.all;
 
-    pid_period_i : in std_logic_vector(31 downto 0);
+entity cascaded_pid is
+    port (
+        clk_i          : in std_logic;
+        init_i         : in std_logic;
 
-    kp_i : in std_logic_vector(31 downto 0) := (others => '0');
-    ki_i : in std_logic_vector(31 downto 0);
-    kd_i : in std_logic_vector(31 downto 0);
-    kff_i : in std_logic_vector(31 downto 0);
-    dir_toggle_i : in std_logic_vector(31 downto 0);
+        pid_period_i   : in panda_port  := (others => '0');
 
-    dt_i : in std_logic_vector(31 downto 0);
-    dt_inverse_i : in std_logic_vector(31 downto 0);
-    use_vel_der_i : in std_logic_vector(31 downto 0);
+        kp_i           : in panda_port  := (others => '0');
+        ki_i           : in panda_port  := (others => '0');
+        kd_i           : in panda_port  := (others => '0');
 
-    max_integral_i : in std_logic_vector(31 downto 0);
-    max_output_i : in std_logic_vector(31 downto 0);
-    max_following_err_i : in std_logic_vector(31 downto 0) := (others => '0');
+        do_vel_diff_i  : in panda_port  := (others => '0');
+        dir_toggle_i   : in panda_port  := (others => '0');
+        dt_i           : in panda_port  := (others => '0');
+        dt_inv_i       : in panda_port  := (others => '0');
+        max_integral_i : in panda_port  := (others => '0');
+        max_output_i   : in panda_port  := (others => '0');
 
-    real_input_i : in std_logic_vector(31 downto 0); -- Measured value
-    setpoint_i : in std_logic_vector(31 downto 0); -- Desired value
-    err_diff_o : out std_logic_vector(31 downto 0) := (others => '0') -- Output value
-);
-end entity pid;
+        real_input_i   : in panda_port  := (others => '0'); -- Measured value
+        setpoint_i     : in panda_port  := (others => '0'); -- Desired value
 
-architecture rtl of pid is
-    -- 200 kHz target
-    -- 25 x 18 multipliers
+        real_output_o  : out panda_port := (others => '0') -- Output value
+    );
+end entity cascaded_pid;
 
-    signal kp_prev : std_logic_vector(31 downto 0) := (others => '0');
-    signal ki_prev : std_logic_vector(31 downto 0) := (others => '0');
-    signal kd_prev : std_logic_vector(31 downto 0) := (others => '0');
-    signal kff_prev : std_logic_vector(31 downto 0) := (others => '0');
-    signal dt_prev : std_logic_vector(31 downto 0) := (others => '0');
-    signal dt_inv_prev : std_logic_vector(31 downto 0) := (others => '0');
-    signal input_changed : std_logic;
+architecture no_pipeline of cascaded_pid is
+    -- P term
+    signal p_mul      : signed(P_MUL_SIZE -1 downto 0)
+        := (others => '0');
+    signal p_scaled   : signed(P_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
 
-    signal round_out : signed(real_output_o'range) := (others => '0');
+    -- I term
+    signal i_mul_dt   : signed(I_MUL_DT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal i_mul_err  : signed(I_MUL_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal i_sca_part : signed(I_SCA_PRT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal i_scaled   : signed(I_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
 
-    signal err_full : signed(31 downto 0) := (others => '0');
-    signal err_buffered : signed(31 downto 0) := (others => '0');
-    signal err_prev : signed(31 downto 0) := (others => '0');
-    signal err_diff : signed(31 downto 0) := (others => '0');
+    -- D term
+    signal d_mul_dt   : signed(D_MUL_DT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal d_mul_err  : signed(D_MUL_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal d_scaled   : signed(D_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
 
-    signal p_mul : signed(P_MUL_SIZE - 1 downto 0) := (others => '0');
-    signal p_scaled : signed(P_SCALED_SIZE - 1 downto 0) := (others => '0');
+    -- Sum term
+    signal sum_scaled : signed(SUM_SCALED_SIZE - 1 downto 0)
+        := (others => '0');
+    signal sum_int    : signed(SUM_INT_SIZE - 1 downto 0)   
+        := (others => '0');
 
-    signal i_mul_frac_parts : signed(I_MUL_FRAC_SIZE - 1 downto 0) := (others => '0');
-    signal i_mul_err : signed(I_MUL_ERR_SIZE - 1 downto 0) := (others => '0');
-    signal i_round : signed(i_mul_err'length - 1 downto 0) := (others => '0');
-    signal i_scaled_frac : signed(I_SCALED_FRAC_SIZE - 1 downto 0) := (others => '0');
-    signal i_scaled : signed(I_SCALED_SIZE - 1 downto 0) := (others => '0');
+    -- PID clock
+    -- 625 is ~200kHz
+    signal clk_count  : unsigned(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal trigger    : std_logic
+        := '0';
 
-    signal max_integral_shifted : signed(i_scaled'length - 1 downto 0) := (others => '0');
+    -- Error
+    signal prev_err   : signed(POS_ERR_SIZE - 1 downto 0);
 
-    signal d_mul : signed(D_MUL_SIZE -1 downto 0) := (others => '0');
-    signal d_mul_err : signed(D_MUL_ERR_SIZE -1 downto 0) := (others => '0');
-    signal d_scaled : signed(D_SCALED_SIZE - 1 downto 0) := (others => '0');
+    -- Master Clock
+    signal pm_mul     : signed(PM_MUL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal ri_nm      : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
 
-    signal prev_position : std_logic_vector(31 downto 0) := (others => '0');
+    -- Misc
+    signal v_des_cal  : signed(V_DES_CAL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal prev_v_des : signed(V_DES_CAL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal prev_set   : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+    signal d_err      : signed(D_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal max_out    : signed(MAX_OUT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal prev_pos   : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+    signal vel        : signed(VEL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal max_i_term : signed(MAX_I_SIZE - 1 downto 0)
+        := (others => '0');
+    signal pos_store  : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+    signal set_store  : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+    signal do_work    : std_logic
+        := '0';
+    signal state      : pid_state
+        := INITIAL;
 
-    signal ff_mul : signed(FF_MUL_SIZE - 1 downto 0) := (others => '0');
-    signal ff_scaled : signed(FF_SCALED_SIZE - 1 downto 0) := (others => '0');
-
-    signal sum_scaled : signed(SUM_SCALED_SIZE - 1 downto 0) := (others => '0');
-    signal sum_rounded : signed(SUM_SCALED_SIZE - 1 downto 0) := (others => '0');
-    signal sum_integer : signed(SUM_SCALED_SIZE - DT_FRAC - 1 downto 0) := (others => '0');
-
-    signal pipeline_counter : unsigned(3 downto 0) := (others => '0');
-    signal enable_pipeline  : std_logic := '0';
-
-    signal clk_count : unsigned(31 downto 0) := (others => '0'); -- 625 is ~200kHz
-    signal trigger : std_logic;
 
 begin
-
     process(clk_i)
+    -- Creates a local clock which is some
+    -- number of ticks slower than the master
+    -- PandA clock.
     begin
         if rising_edge(clk_i) then
             if init_i = '1' then
@@ -108,160 +138,262 @@ begin
         end if; -- Clock
     end process;
 
+
+    -- Main logic
     process(clk_i)
     begin
         if rising_edge(clk_i) then
+            -- Encoders read in units of 256pm.
+            -- Must convert into units of 1nm.
+            -- => multiply by * 256/1000 = 0.256.
+            pm_mul <= resize(
+                (signed(real_input_i) * PV_SCALE),
+                pm_mul'length
+            );
 
-            -- Check if inputs have changed
-            if kp_i /= kp_prev or
-            ki_i /= ki_prev or
-            kd_i /= kd_prev or
-            dt_i /= dt_prev or
-            dt_inverse_i /= dt_inv_prev then
-                input_changed <= '1';
-            else
-                input_changed <= '0';
-            end if;
+            -- Round result
+            ri_nm <= round_sym(
+                pm_mul, PM_SCA_FRAC, ri_nm'length
+            );
 
-            -- Update input buffer
-            kp_prev <= kp_i;
-            ki_prev <= ki_i;
-            kd_prev <= kd_i;
-            dt_prev <= dt_i;
-            dt_inv_prev <= dt_inverse_i;
+            if init_i = '1' then
+                -- Error
+                pos_err       <= (others => '0');
+                prev_err      <= (others => '0');
+                d_err         <= (others => '0');
 
-            -- Scale integral limit to fixed point
-            max_integral_shifted <= shift_left(resize(signed(max_integral_i), max_integral_shifted'length), DT_FRAC);
-            
-            -- Calculate the setpoint error
-            err_full <= signed(setpoint_i) - signed(real_input_i);
+                -- Velocity
+                prev_pos      <= (others => '0');
+                prev_v_des    <= (others => '0');
+                vel           <= (others => '0');
+                v_des_cal     <= (others => '0');
 
-            -- Caclulate velocity
-            vel_o <= std_logic_vector(resize(signed(real_input_i) - signed(prev_position), vel_o'length));
+                -- P term
+                p_mul         <= (others => '0');
+                p_scaled      <= (others => '0');
 
-            -- Reset/following error protection
-            if init_i = '1' or 
-            signed(real_input_i) > signed(max_following_err_i) or 
-            signed(real_input_i) < signed(-max_following_err_i) or
-            input_changed = '1' then
-                err_full <= (others => '0');
-                err_prev <= (others => '0');
-                err_buffered <= (others => '0');
-                err_diff <= (others => '0');
-                
-                sum_scaled <= (others => '0');
-                sum_rounded <= (others => '0');
-                sum_integer <= (others => '0');
+                -- I term
+                i_mul_dt      <= (others => '0');
+                i_mul_err     <= (others => '0');
+                i_sca_part    <= (others => '0');
+                i_scaled      <= (others => '0');
 
-                p_mul <= (others => '0');
-                p_scaled <= (others => '0');
+                -- D term
+                d_mul_dt      <= (others => '0');
+                d_mul_err     <= (others => '0');
+                d_scaled      <= (others => '0');
 
-                i_mul_frac_parts <= (others => '0');
-                i_mul_err <= (others => '0');
-                i_round <= (others => '0');
-                i_scaled_frac <= (others => '0');
-                i_scaled <= (others => '0');
+                -- Sum
+                sum_scaled    <= (others => '0');
+                sum_int       <= (others => '0');
 
-                d_mul <= (others => '0');
-                d_mul_err <= (others => '0');
-                d_scaled <= (others => '0');
+                -- Misc
+                prev_set      <= (others => '0');
+                max_i_term    <= (others => '0');
+                round_out     <= (others => '0');
+                max_out       <= (others => '0');
 
-                prev_position <= (others => '0');
-
-                ff_mul <= (others => '0');
-                ff_scaled <= (others => '0');
-
-                round_out <= (others => '0');
                 real_output_o <= (others => '0');
+                do_work       <= '0';
 
-                pipeline_counter <= "0000";
-                enable_pipeline <= '0';
+            elsif trigger = '1' then
+                -- Start logic next master clock
+                do_work <= '1';
 
-            elsif trigger = '1' and (dt_i /= (others => '0')) then
-                -- Output value and process next
-                real_output_o <= std_logic_vector(round_out);
-                enable_pipeline <= '1';
+                -- Calculate the position error
+                pos_err <= pad_signed(
+                    signed(setpoint_i), DES_FRAC, pos_err'length
+                ) - ri_nm;
 
-            elsif enable_pipeline = '1' then
-                case pipeline_counter is
-                    when "0000" =>
-                        i_mul_frac_parts <= resize(signed(ki_i), K_INT + K_FRAC) * resize(signed(dt_i), DT_INT + DT_FRAC);
-                        d_mul <= resize(signed(kd_i), K_INT + K_FRAC) * resize(signed(dt_inverse_i), D_DT_SIZE);
+                -- Store instantaneous inputs for later usage
+                pos_store <= ri_nm;
+                set_store <= pad_signed(
+                    signed(setpoint_i), DES_FRAC, set_store'length
+                );
 
-                        if use_vel_der_i(0) = '1' then
-                            err_diff <= signed(real_input_i) - signed(prev_position);
+                -- Update previous values
+                prev_pos  <= pos_store;
+                prev_set  <= set_store;
+                prev_err  <= pos_err;
+
+            elsif do_work = '1' then
+                -- Do work
+                case state is
+                    when INITIAL   =>
+                        -- Measure Velocity
+                        vel        <= (
+                            pos_store - prev_pos
+                        ) * resize(signed(dt_inv_i), DT_I_SIZE);
+
+                        -- Calculate desired velocity
+                        v_des_cal  <= (
+                            set_store - prev_set
+                        ) * resize(signed(dt_inv_i), DT_I_SIZE);
+                        -- ) * to_signed(1*(2**DT_I_FRAC), DT_I_SIZE);
+
+                        -- Main terms
+                        p_mul      <= resize(signed(kp_i), KP_I_SIZE) *
+                                      pos_err;
+
+                        i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
+                                      resize(signed(dt_i), DT_SIZE);
+
+                        d_mul_dt   <= resize(signed(kd_i), KD_I_SIZE) * 
+                                      resize(signed(dt_inv_i), DT_I_SIZE);
+
+                        if do_vel_diff_i(0) = '1' then
+                            -- TODO
+                            -- d_err <= signed(real_input_i) - 
+                            -- signed(prev_position);
+                            d_err <= signed(pos_err) - signed(prev_err);
                         else
-                            err_diff <= signed(err_prev) - signed(err_full);
+                            -- Uses last PID work's prev_err
+                            d_err <= signed(pos_err) - signed(prev_err);
                         end if;
-                        pipeline_counter <= "0001";
 
-                    when "0001" =>
-                        p_mul <= resize(signed(kp_i), K_INT + K_FRAC) * resize(signed(err_full), P_ERR_INT);
-                        i_mul_err <= resize(signed(err_full), ID_ERR_INT) * i_mul_frac_parts;
-                        ff_mul <= resize(signed(kff_i), K_INT + K_FRAC) * resize(signed(setpoint_i), FF_SETPOINT_SIZE);
-                        pipeline_counter <= "0010";
+                        state     <= STAGE_2;
 
-                    when "0010" =>
-                        p_scaled <= p_mul & (DT_FRAC - K_FRAC - 1 downto 0 => '0');
-                        i_scaled_frac <= resize(shift_right(i_mul_err + shift_right(i_mul_err, DT_FRAC - 1), K_FRAC), i_scaled_frac'length);
-                        d_mul_err <= resize(signed(err_diff), P_ERR_INT) * d_mul;
-                        ff_scaled <= ff_mul & (DT_FRAC - K_FRAC - 1 downto 0 => '0');
-                        pipeline_counter <= "0011";
+                    when STAGE_2   => 
+                        v_mul      <= (
+                            resize(signed(kv_i), KV_I_SIZE) * vel
+                        );
 
-                    when "0011" =>
-                        if (i_scaled + i_scaled_frac) > max_integral_shifted then
-                            i_scaled <= max_integral_shifted;
-                        elsif (i_scaled + i_scaled_frac) < -max_integral_shifted then
-                            i_scaled <= -max_integral_shifted;
-                        else
-                            i_scaled <= i_scaled + i_scaled_frac;
+                        i_mul_err  <= pos_err * i_mul_dt;
+
+                        d_mul_err  <= d_mul_dt * d_err;
+
+                        -- store last desired velocity
+                        -- need to wait tick until calculated
+                        prev_v_des <= v_des_cal;
+
+                        state      <= STAGE_3;
+                    
+                    when STAGE_3     =>
+                        -- Scale terms to consistent precision
+                        -- with symmetric rounding.
+                        p_scaled <= round_sym(
+                            p_mul, P_SCA_FRAC, p_scaled'length
+                        );
+                        i_sca_part   <= round_sym(
+                            i_mul_err, I_SCA_FRAC, i_sca_part'length
+                        );
+                        d_scaled     <= round_sym(
+                            d_mul_err, D_SCA_FRAC, d_scaled'length
+                        );
+
+                        state        <= STAGE_4;
+
+                    when STAGE_4     =>
+                        -- if sum_int < max_out and v_des /= 0 then
+                        if sum_int < resize(
+                            signed(max_output_i), sum_int'length
+                        ) and (
+                            v_des_cal /= to_signed(0, V_DES_CAL_SIZE)
+                        )
+                        then
+                            i_scaled <= i_scaled +
+                            resize(i_sca_part, I_SCALED_SIZE);
                         end if;
 
-                        d_scaled <= d_mul_err & (DT_FRAC - K_FRAC - 1 downto 0 => '0');
-                        pipeline_counter <= "0100";
+                        -- Scale integral limit to fixed point
+                        -- Always positive.
+                        max_i_term   <= shift_left(
+                            resize(
+                                signed(max_integral_i),
+                                max_i_term'length
+                            ),
+                            MAX_FRAC
+                        );
 
-                    when "0100" =>
-                        sum_scaled <= resize((p_scaled + i_scaled + d_scaled + ff_scaled), sum_scaled'length);
-                        pipeline_counter <= "0101";
+                        state        <= STAGE_5;
 
-                    when "0101" =>
-                        sum_integer <= resize(shift_right(sum_scaled + shift_right(sum_scaled, DT_FRAC - 1), DT_FRAC), sum_integer'length);
-                        pipeline_counter <= "0110";
+                    when STAGE_5     =>
+                        -- if sum_int < max_out and v_des /= 0 then
+                        if sum_int < resize(
+                            signed(max_output_i), sum_int'length
+                        ) and (
+                            v_des_cal /= to_signed(0, V_DES_CAL_SIZE)
+                        ) then
+                            if i_scaled > resize(
+                                max_i_term, i_scaled'length
+                            ) then
+                                i_scaled <= resize(
+                                    max_i_term, i_scaled'length
+                                );
+                            end if;
 
-                    when "0110" =>
-                        -- Control output clamp
-                        if sum_integer > resize(signed(max_output_i), sum_integer'length) then
-                            round_out <= resize(signed(max_output_i), round_out'length);
-                        elsif sum_integer < resize(signed(-max_output_i), sum_integer'length) then
-                            round_out <= resize(signed(-max_output_i), round_out'length);
-                        else
-                            -- Toggle Direction
-                            if dir_toggle_i(0) = '1' then
-                                round_out <= resize(-sum_integer, round_out'length);
-                            else
-                                round_out <= resize(sum_integer, round_out'length);
+                            if i_scaled < resize(
+                                -max_i_term, i_scaled'length
+                            ) then
+                                i_scaled <= resize(
+                                    -max_i_term, i_scaled'length
+                                );
                             end if;
                         end if;
 
-                        -- Update previous error
-                        err_prev <= err_full;
+                        state        <= STAGE_6;
 
-                        -- Update previous position for velocity
-                        prev_position <= real_input_i;
+                    when STAGE_6 => 
+                        sum_scaled <= resize(
+                            (
+                                p_scaled +
+                                i_scaled +
+                                d_scaled
+                            ), sum_scaled'length
+                        );
+                        state      <= STAGE_7;
 
-                        pipeline_counter <= "0000";
-                        enable_pipeline <= '0';
+                    when STAGE_7    => 
+                        sum_int <= round_sym(
+                            sum_scaled, MAX_FRAC, sum_int'length
+                        );
+
+                        state       <= DONE;
+
+                    when DONE => 
+                        if sum_int > resize(
+                            signed(max_output_i), sum_int'length
+                        ) then
+                            real_output_o <= std_logic_vector(
+                                resize(
+                                    signed(max_output_i), round_out'length
+                                )
+                            );
+                        elsif sum_int < resize(
+                            -signed(max_output_i), sum_int'length
+                        ) then
+                            real_output_o <= std_logic_vector(
+                                resize(
+                                    -signed(max_output_i), round_out'length
+                                )
+                            );
+                        else
+                            -- Toggle Direction
+                            if dir_toggle_i(0) = '1' then
+                                real_output_o <= std_logic_vector(
+                                    resize(
+                                        -sum_int, round_out'length
+                                    )
+                                );
+                            else
+                                real_output_o <= std_logic_vector(
+                                    resize(
+                                        sum_int, round_out'length
+                                    )
+                                );
+                            end if;
+                        end if;
+
+                        state   <= INITIAL;
+                        do_work <= '0';
 
                     when others =>
-                        pipeline_counter <= "0000";
-                        enable_pipeline <= '0';
+                        state   <= INITIAL;
+                        do_work <= '0';
 
                 end case;
+            end if;
+        end if;  -- Clock
+    end process; -- Main logic
 
-            end if; -- Reset + Trigger
-
-        end if; -- Clock
-
-    end process;
-
-end rtl;
+end no_pipeline;

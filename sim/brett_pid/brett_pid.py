@@ -40,9 +40,10 @@ class PID:
         
 
     def update(self, setpoint: int, process_variable: int) -> int:
-        error = setpoint - process_variable
-        velocity = (process_variable - self.prev_process_variable) * self.inv_dt
-        velocity_desired = int((setpoint - self.prev_setpoint) * self.inv_dt)
+        process_variable = process_variable * 0.256
+        error = setpoint - process_variable # clamp?
+        velocity = (process_variable - self.prev_process_variable)
+        velocity_desired = int((setpoint - self.prev_setpoint))
         # velocity_desired = int((setpoint - self.prev_setpoint))
 
         # self.integral += error * self.dt
@@ -63,7 +64,7 @@ class PID:
                 self.kvff * velocity_desired +
                 self.kaff * (velocity_desired - self.prev_velocity_desired) +
                 self.kpff1 * setpoint +
-                self.kpff0 * abs(setpoint) * setpoint
+                self.kpff0 * (abs(setpoint) * setpoint)
             )
 
         self.pid_sum = int(
@@ -120,35 +121,35 @@ def trapezoid_wave_rest(t, T_ramp, T_hold, T_rest, A):
     return y
 
 
-# pid_kwargs = {
-#     "kp": 0.004,
-#     "kv": 0.9,
-#     "ki": 0.0002,
-#     "kd": 0,
-#     "kvff": 3.7,
-#     "kaff": 100,
-#     "kpff1": 0.00196,
-#     "kpff0": 0,
-#     "dt": 1 / 10000,
-#     "ff": True,
-#     "max_dac": 3932,
-#     "int_lim": 28000,
-# }
-
 pid_kwargs = {
-    "kp": 0,
-    "kv": 1,
-    "ki": 0,
+    "kp": 0.004,
+    "kv": 0.9,
+    "ki": 0.0002,
     "kd": 0,
-    "kvff": 0,
-    "kaff": 0,
-    "kpff1": 0,
+    "kvff": 3.7,
+    "kaff": 100,
+    "kpff1": 0.00196,
     "kpff0": 0,
-    "dt": 1 / 10000,
+    "dt": 0.0001,
     "ff": True,
-    "max_dac": 280000000,
-    "int_lim": 400000000,
+    "max_dac": 3932,
+    "int_lim": 28000,
 }
+
+# pid_kwargs = {
+#     "kp": 1,
+#     "kv": 0,
+#     "ki": 0,
+#     "kd": 0,
+#     "kvff": 0,
+#     "kaff": 0,
+#     "kpff1": 0,
+#     "kpff0": 0,
+#     "dt": 1,
+#     "ff": True,
+#     "max_dac": 393200,
+#     "int_lim": 2800000,
+# }
 
 pid = PID(**pid_kwargs)
 

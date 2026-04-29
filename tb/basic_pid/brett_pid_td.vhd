@@ -63,10 +63,10 @@ process
 begin
     -- Initial input values
     init_i         <= '1';
-    pid_period_i   <= std_logic_vector(to_signed(3, pid_period_i'length));
+    pid_period_i   <= std_logic_vector(to_signed(20, pid_period_i'length));
     k_tot_i        <= "0" & "1" & "000000000000000000000000000000";
-    kp_i           <= "0" & "000000" & "0000000000000000000000000";
-    kv_i           <= "0" & "000001" & "0000000000000000000000000";
+    kp_i           <= "0" & "000000" & "0000000000011010001100000";
+    kv_i           <= "0" & "000000" & "0000000000000000000000000";
     ki_i           <= "0" & "000000" & "0000000000000000000000000";
     kd_i           <= "0" & "000000" & "0000000000000000000000000";
     kvff_i         <= "0" & "000000" & "0000000000000000000000000";
@@ -76,24 +76,22 @@ begin
     do_vel_diff_i  <= std_logic_vector(to_unsigned(0, do_vel_diff_i'length));
     dir_toggle_i   <= std_logic_vector(to_signed(0, dir_toggle_i'length));
     dt_i           <= "0" & "000001" & "0000000000000000000000000";
-    dt_inv_i       <= "0" & "001010" & "0000000000000000000000000";
+    dt_inv_i       <= "0" & "0000000000000000001010" & "000000000";
     max_integral_i <= std_logic_vector(to_signed(200000, max_integral_i'length));
     max_output_i   <= std_logic_vector(to_signed(2000000000, max_output_i'length));
-    real_input_i   <= std_logic_vector(to_signed(50, real_input_i'length));
-    setpoint_i     <= std_logic_vector(to_signed(1, setpoint_i'length));
+    real_input_i   <= std_logic_vector(to_signed(0, real_input_i'length));
+    setpoint_i     <= std_logic_vector(to_signed(0, setpoint_i'length));
 
     -- Begin waiting 
     wait until rising_edge(clk_i);
     init_i         <= '0';
-    real_input_i   <= std_logic_vector(to_signed(100, real_input_i'length));
+    real_input_i     <= std_logic_vector(to_signed(10000000, real_input_i'length));
+    setpoint_i       <= std_logic_vector(to_signed(5000000, real_input_i'length));
     wait until rising_edge(clk_i);
-    real_input_i   <= std_logic_vector(to_signed(200, real_input_i'length));
     wait until rising_edge(clk_i);
-    real_input_i   <= std_logic_vector(to_signed(400, real_input_i'length));
     wait until rising_edge(clk_i);
-    real_input_i   <= std_logic_vector(to_signed(800, real_input_i'length));
 
-    for i in 0 to 30 loop
+    for i in 0 to 50 loop
         wait until rising_edge(clk_i);
         -- do something each cycle
     end loop;

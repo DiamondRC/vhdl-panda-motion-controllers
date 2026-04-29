@@ -88,25 +88,19 @@ architecture no_pipeline of brett_pid is
         := (others => '0');
     signal p1_des_mul : signed(P1_DES_MUL_SIZE - 1 downto 0)
         := (others => '0');
+    signal p1_des_sca : signed(P1_DES_SCA_SIZE - 1 downto 0)
+        := (others => '0');
     signal p0_des_abs : signed(P0_DES_ABS_SIZE - 1 downto 0)
         := (others => '0');
     signal p0_des_mul : signed(P0_DES_MUL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal p0_des_sca : signed(P0_DES_SCA_SIZE - 1 downto 0)
         := (others => '0');
 
     -- Sum term
     signal sum_scaled : signed(SUM_SCALED_SIZE - 1 downto 0)
         := (others => '0');
     signal sum_int    : signed(SUM_INT_SIZE - 1 downto 0)   
-        := (others => '0');
-
-    -- Master clock
-    signal prev_pos   : signed(PANDA_PORT_SIZE - 1 downto 0)
-        := (others => '0');
-    signal vel        : signed(VEL_SIZE - 1 downto 0)
-        := (others => '0');
-    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
-        := (others => '0');
-    signal max_i_term : signed(MAX_I_SIZE - 1 downto 0)
         := (others => '0');
 
     -- PID clock
@@ -119,22 +113,45 @@ architecture no_pipeline of brett_pid is
     -- Error
     signal prev_err   : signed(POS_ERR_SIZE - 1 downto 0);
 
+    -- Master Clock
+    signal pm_mul     : signed(PM_MUL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal ri_nm      : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+
     -- Misc
     signal v_des_cal  : signed(V_DES_CAL_SIZE - 1 downto 0)
         := (others => '0');
     signal prev_v_des : signed(V_DES_CAL_SIZE - 1 downto 0)
         := (others => '0');
-    signal prev_set   : signed(PANDA_PORT_SIZE - 1 downto 0)
+    signal prev_set   : signed(RI_NM_SIZE - 1 downto 0)
         := (others => '0');
-    signal d_err      : signed(D_ERR_SIZE - 1 downto 0);
+    signal d_err      : signed(D_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal sca_mul    : signed(SCALE_MUL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal scale_out  : signed(SCALE_OUT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal max_out    : signed(MAX_OUT_SIZE - 1 downto 0)
+        := (others => '0');
+    signal prev_pos   : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+    signal vel        : signed(VEL_SIZE - 1 downto 0)
+        := (others => '0');
+    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
+        := (others => '0');
+    signal max_i_term : signed(MAX_I_SIZE - 1 downto 0)
+        := (others => '0');
+    signal pos_store  : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
+    signal set_store  : signed(RI_NM_SIZE - 1 downto 0)
+        := (others => '0');
     signal do_work    : std_logic
         := '0';
     signal state      : pid_state
-        := IDLE;
-    signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0);
-    signal sca_mul    : signed(SCALE_MUL_SIZE - 1 downto 0);
-    signal scale_out  : signed(SCALE_OUT_SIZE - 1 downto 0);
-    signal max_out    : signed(MAX_OUT_SIZE - 1 downto 0);
+        := INITIAL;
 
 
 begin
@@ -164,14 +181,18 @@ begin
     process(clk_i)
     begin
         if rising_edge(clk_i) then
-            -- Handle master processes
+            -- Encoders read in units of 256pm.
+            -- Must convert into units of 1nm.
+            -- => multiply by * 256/1000 = 0.256.
+            pm_mul <= resize(
+                (signed(real_input_i) * PV_SCALE),
+                pm_mul'length
+            );
 
-            -- Calculate the position error
-            pos_err  <= signed(setpoint_i) - signed(real_input_i);
-
-            -- Output stored work
-            real_output_o <= std_logic_vector(round_out);
-            
+            -- Round result
+            ri_nm <= round_sym(
+                pm_mul, PM_SCA_FRAC, ri_nm'length
+            );
 
             if init_i = '1' then
                 -- Error
@@ -211,8 +232,10 @@ begin
                 a_des_mul     <= (others => '0');
                 a_des_sca     <= (others => '0');
                 p1_des_mul    <= (others => '0');
+                p1_des_sca    <= (others => '0');
                 p0_des_abs    <= (others => '0');
                 p0_des_mul    <= (others => '0');
+                p0_des_sca    <= (others => '0');
 
                 -- Sum
                 sum_scaled    <= (others => '0');
@@ -232,18 +255,34 @@ begin
                 -- Start logic next master clock
                 do_work <= '1';
 
+                -- Calculate the position error
+                pos_err <= pad_signed(
+                    signed(setpoint_i), DES_FRAC, pos_err'length
+                ) - ri_nm;
+
+                -- Store instantaneous inputs for later usage
+                pos_store <= ri_nm;
+                set_store <= pad_signed(
+                    signed(setpoint_i), DES_FRAC, set_store'length
+                );
+
+                -- Update previous values
+                prev_pos  <= pos_store;
+                prev_set  <= set_store;
+                prev_err  <= pos_err;
+
             elsif do_work = '1' then
                 -- Do work
                 case state is
-                    when IDLE      =>
+                    when INITIAL   =>
                         -- Measure Velocity
                         vel        <= (
-                            signed(real_input_i) - prev_pos
+                            pos_store - prev_pos
                         ) * resize(signed(dt_inv_i), DT_I_SIZE);
 
                         -- Calculate desired velocity
                         v_des_cal  <= (
-                            signed(setpoint_i) - prev_set
+                            set_store - prev_set
                         ) * resize(signed(dt_inv_i), DT_I_SIZE);
                         -- ) * to_signed(1*(2**DT_I_FRAC), DT_I_SIZE);
 
@@ -252,23 +291,17 @@ begin
                                       pos_err;
 
                         i_mul_dt   <= resize(signed(ki_i), KI_I_SIZE) *
-                                      to_signed(1*(2**DT_FRAC), DT_SIZE);
-                                    --   resize(signed(dt_i), DT_SIZE);
+                                      resize(signed(dt_i), DT_SIZE);
 
                         d_mul_dt   <= resize(signed(kd_i), KD_I_SIZE) * 
                                       resize(signed(dt_inv_i), DT_I_SIZE);
 
                         -- FF terms
                         p1_des_mul <= resize(signed(kpff1_i), KP1FF_I_SIZE) * 
-                                      signed(setpoint_i);
+                                      set_store;
 
                         p0_des_abs <= resize(signed(kpff0_i), KP0FF_I_SIZE) * 
-                                      abs(signed(setpoint_i));
-
-                        -- Update previous values
-                        prev_pos   <= signed(real_input_i);
-                        prev_set   <= signed(setpoint_i);
-                        prev_err   <= pos_err;
+                                      abs(set_store);
 
                         if do_vel_diff_i(0) = '1' then
                             -- TODO
@@ -287,8 +320,7 @@ begin
                             resize(signed(kv_i), KV_I_SIZE) * vel
                         );
 
-                        -- use prev_err for consistency
-                        i_mul_err  <= prev_err * i_mul_dt;
+                        i_mul_err  <= pos_err * i_mul_dt;
 
                         d_mul_err  <= d_mul_dt * d_err;
 
@@ -297,7 +329,7 @@ begin
 
                         a_des_sub  <= v_des_cal - prev_v_des;
                         
-                        p0_des_mul <= p0_des_abs * signed(setpoint_i);
+                        p0_des_mul <= p0_des_abs * set_store;
 
                         -- store last desired velocity
                         -- need to wait tick until calculated
@@ -305,105 +337,35 @@ begin
 
                         state      <= STAGE_3;
                     
-                    when STAGE_3   =>
-                        -- Scale part back to largest
-                        -- fixed point.
-                        -- v_scaled   <= -(
-                        --     resize(
-                        --         shift_right(
-                        --             v_mul + 
-                        --             shift_right(
-                        --                 v_mul,
-                        --                 V_SCA_FRAC
-                        --             ),
-                        --         V_SCA_FRAC), 
-                        --         v_scaled'length
-                        --     )
-                        -- );
-
-                        v_scaled <= round_sym(v_mul, V_SCA_FRAC, v_scaled'length);
-
-                        -- if i_mul_err >= 0 then
-                        --     -- add half LSB, then shift right by frac_diff
-                        --     i_sca_part <= resize(
-                        --         shift_right(
-                        --             i_mul_err + to_signed(
-                        --                 2**(I_SCA_FRAC-1), i_mul_err'length
-                        --             ), I_SCA_FRAC
-                        --         ),
-                        --         i_sca_part'length
-                        --     );
-                        -- else
-                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
-                        --     i_sca_part <= resize(
-                        --         shift_right(
-                        --             i_mul_err - to_signed(
-                        --                 2**(I_SCA_FRAC-1), i_mul_err'length
-                        --             ), I_SCA_FRAC
-                        --         ),
-                        --         i_sca_part'length
-                        --     );
-                        -- end if;
-
-                        i_sca_part <= round_sym(i_mul_err, I_SCA_FRAC, i_sca_part'length);
-
-                        -- if u >= 0 then
-                        --     -- add half LSB, then shift right by frac_diff
-                        --     temp := u + to_signed(2**(frac_diff-1), u'length);
-                        --     rounded := shift_right(temp, frac_diff);
-                        -- else
-                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
-                        --     temp := u - to_signed(2**(frac_diff-1), u'length);
-                        --     rounded := shift_right(temp, frac_diff);
-                        -- end if;
-
-                        -- d_scaled   <= resize(
-                        --     shift_right(
-                        --         d_mul_err + 
-                        --         shift_right(
-                        --             d_mul_err,
-                        --             D_SCA_FRAC
-                        --         ),
-                        --     D_SCA_FRAC), 
-                        --     d_scaled'length
-                        -- );
-
-                        d_scaled <= round_sym(d_mul_err, D_SCA_FRAC, d_scaled'length);
-
-                        -- v_des_sca  <= resize(
-                        --     shift_right(
-                        --         v_des_mul + 
-                        --         shift_right(
-                        --             v_des_mul,
-                        --             V_FF_SCA_FRAC
-                        --         ),
-                        --     V_FF_SCA_FRAC), 
-                        --     v_des_sca'length
-                        -- );
-
-                        v_des_sca <= round_sym(v_des_mul, V_FF_SCA_FRAC, v_des_sca'length);
-
-                        a_des_mul  <= resize(signed(kaff_i), KAFF_I_SIZE) * 
+                    when STAGE_3     =>
+                        a_des_mul    <= resize(signed(kaff_i), KAFF_I_SIZE) * 
                                       a_des_sub;
 
-                        -- Pad terms if there's more precision in one
-                        -- term than the others
-                        -- TODO - integral, derivative term.
-                        if P_SCALED_WIDTH /= 0 then
-                            p_scaled <= p_mul &
-                                    (P_SCALED_WIDTH - 1 downto 0 => '0');
-                        else
-                            p_scaled <= p_mul;
-                        end if;
+                        -- Scale terms to consistent precision
+                        -- with symmetric rounding.
+                        p_scaled <= round_sym(
+                            p_mul, P_SCA_FRAC, p_scaled'length
+                        );
+                        v_scaled     <= -round_sym( -- V is -ve in sum
+                            v_mul, V_SCA_FRAC, v_scaled'length
+                        );
+                        i_sca_part   <= round_sym(
+                            i_mul_err, I_SCA_FRAC, i_sca_part'length
+                        );
+                        d_scaled     <= round_sym(
+                            d_mul_err, D_SCA_FRAC, d_scaled'length
+                        );
+                        v_des_sca    <= round_sym(
+                            v_des_mul, V_FF_SCA_FRAC, v_des_sca'length
+                        );
 
-                        -- -- Scale max limit to fixed point
-                        -- max_out   <= shift_left(
-                        --     resize(
-                        --         signed(max_output_i),
-                        --         max_out'length
-                        --     ),
-                        --     MAX_FRAC
-                        -- );
+                        p1_des_sca <= round_sym(
+                            p1_des_mul, P1_DES_SCA_FRAC, p1_des_sca'length
+                        );
+
+                        p0_des_sca <= round_sym(
+                            p0_des_mul, P0_DES_SCA_FRAC, p0_des_sca'length
+                        );
 
                         state        <= STAGE_4;
 
@@ -415,7 +377,8 @@ begin
                             v_des_cal /= to_signed(0, V_DES_CAL_SIZE)
                         )
                         then
-                            i_scaled <= i_scaled + i_sca_part;
+                            i_scaled <= i_scaled +
+                            resize(i_sca_part, I_SCALED_SIZE);
                         end if;
 
                         -- Scale integral limit to fixed point
@@ -454,18 +417,9 @@ begin
                             end if;
                         end if;
 
-                        -- a_des_sca    <= resize(
-                        --     shift_right(
-                        --         a_des_mul + 
-                        --         shift_right(
-                        --             a_des_mul,
-                        --             A_SCA_FRAC
-                        --         ),
-                        --     A_SCA_FRAC), 
-                        --     a_des_sca'length
-                        -- );
-
-                        a_des_sca <= round_sym(a_des_mul, A_SCA_FRAC, a_des_sca'length);
+                        a_des_sca <= round_sym(
+                            a_des_mul, A_SCA_FRAC, a_des_sca'length
+                        );
 
                         state        <= STAGE_6;
 
@@ -478,39 +432,16 @@ begin
                                 d_scaled +
                                 v_des_sca +
                                 a_des_sca +
-                                p1_des_mul +
-                                p0_des_mul
+                                p1_des_sca +
+                                p0_des_sca
                             ), sum_scaled'length
                         );
                         state      <= STAGE_7;
 
                     when STAGE_7    => 
-                        -- Check the sign of the sum and round
-                        -- appropriately.
-                        -- if sum_scaled >= 0 then
-                        --     -- add half LSB, then shift right by frac_diff
-                        --     sum_int <= resize(
-                        --         shift_right(
-                        --             sum_scaled + to_signed(
-                        --                 2**(MAX_FRAC-1), sum_scaled'length
-                        --             ), MAX_FRAC
-                        --         ),
-                        --         sum_int'length
-                        --     );
-                        -- else
-                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
-                        --     sum_int <= resize(
-                        --         shift_right(
-                        --             sum_scaled - to_signed(
-                        --                 2**(MAX_FRAC-1), sum_scaled'length
-                        --             ), MAX_FRAC
-                        --         ),
-                        --         sum_int'length
-                        --     );
-                        -- end if;
-
-                        sum_int <= round_sym(sum_scaled, MAX_FRAC, sum_int'length);
-
+                        sum_int <= round_sym(
+                            sum_scaled, MAX_FRAC, sum_int'length
+                        );
 
                         state       <= STAGE_8;
 
@@ -522,64 +453,77 @@ begin
 
                     when STAGE_9  =>
                         -- Will over/underflow, no clamp
-                        -- if sca_mul >= 0 then
-                        --     -- add half LSB, then shift right by frac_diff
-                        --     scale_out <= resize(
-                        --         shift_right(
-                        --             sca_mul + to_signed(
-                        --                 2**(SCA_OUT_SCA_FRAC-1), sca_mul'length
-                        --             ), SCA_OUT_SCA_FRAC
-                        --         ),
-                        --         scale_out'length
-                        --     );
-                        -- else
-                        --     -- for negatives, subtract half LSB, then shift right by frac_diff
-                        --     scale_out <= resize(
-                        --         shift_right(
-                        --             sca_mul - to_signed(
-                        --                 2**(SCA_OUT_SCA_FRAC-1), sca_mul'length
-                        --             ), SCA_OUT_SCA_FRAC
-                        --         ),
-                        --         scale_out'length
-                        --     );
-                        -- end if;
-
-                        scale_out <= round_sym(sca_mul, SCA_OUT_SCA_FRAC, scale_out'length);
+                        scale_out <= round_sym(
+                            sca_mul, SCA_OUT_SCA_FRAC, scale_out'length
+                        );
 
                         state     <= DONE;
 
                     when DONE => 
                         -- Output value and clean-up
+                        -- if scale_out > resize(
+                        --     signed(max_output_i), scale_out'length
+                        -- ) then
+                        --     round_out <= resize(
+                        --         signed(max_output_i), round_out'length
+                        --     );
+                        -- elsif scale_out < resize(
+                        --     -signed(max_output_i), scale_out'length
+                        -- ) then
+                        --     round_out <= resize(
+                        --         -signed(max_output_i), round_out'length
+                        --     );
+                        -- else
+                        --     -- Toggle Direction
+                        --     if dir_toggle_i(0) = '1' then
+                        --         round_out <= resize(
+                        --             -scale_out, round_out'length
+                        --         );
+                        --     else
+                        --         round_out <= resize(
+                        --             scale_out, round_out'length
+                        --         );
+                        --     end if;
+                        -- end if;
+
                         if scale_out > resize(
                             signed(max_output_i), scale_out'length
                         ) then
-                            round_out <= resize(
-                                signed(max_output_i), round_out'length
+                            real_output_o <= std_logic_vector(
+                                resize(
+                                    signed(max_output_i), round_out'length
+                                )
                             );
                         elsif scale_out < resize(
                             -signed(max_output_i), scale_out'length
                         ) then
-                            round_out <= resize(
-                                -signed(max_output_i), round_out'length
+                            real_output_o <= std_logic_vector(
+                                resize(
+                                    -signed(max_output_i), round_out'length
+                                )
                             );
                         else
                             -- Toggle Direction
                             if dir_toggle_i(0) = '1' then
-                                round_out <= resize(
-                                    -scale_out, round_out'length
+                                real_output_o <= std_logic_vector(
+                                    resize(
+                                        -scale_out, round_out'length
+                                    )
                                 );
                             else
-                                round_out <= resize(
-                                    scale_out, round_out'length
+                                real_output_o <= std_logic_vector(
+                                    resize(
+                                        scale_out, round_out'length
+                                    )
                                 );
                             end if;
                         end if;
 
-                        state   <= IDLE;
+                        state   <= INITIAL;
                         do_work <= '0';
 
                     when others =>
-                        state   <= IDLE;
+                        state   <= INITIAL;
                         do_work <= '0';
 
                 end case;
