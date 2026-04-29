@@ -13,7 +13,7 @@ use work.global_enums.all;
 use work.global_subtypes.all;
 use work.fp_utils.all;
 
-entity cascaded_pid is
+entity pid is
     port (
         clk_i          : in std_logic;
         init_i         : in std_logic;
@@ -36,9 +36,9 @@ entity cascaded_pid is
 
         real_output_o  : out panda_port := (others => '0') -- Output value
     );
-end entity cascaded_pid;
+end entity pid;
 
-architecture no_pipeline of cascaded_pid is
+architecture no_pipeline of pid is
     -- P term
     signal p_mul      : signed(P_MUL_SIZE -1 downto 0)
         := (others => '0');
@@ -254,10 +254,6 @@ begin
                         state     <= STAGE_2;
 
                     when STAGE_2   => 
-                        v_mul      <= (
-                            resize(signed(kv_i), KV_I_SIZE) * vel
-                        );
-
                         i_mul_err  <= pos_err * i_mul_dt;
 
                         d_mul_err  <= d_mul_dt * d_err;

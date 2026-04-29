@@ -34,7 +34,7 @@ package global_constants is
         DT_I_FRAC,
         KP_I_FRAC,
         KI_I_FRAC,
-        KD_I_FRAC,
+        KD_I_FRAC
     );
 
     function max_nat(a    : nat_array_t) return natural;
@@ -44,14 +44,17 @@ package global_constants is
     --------------------- Input Conversion ----------------------
 
     -- constant PV_FRAC       : natural := 10; -- 0.05% err
-    constant PV_FRAC       : natural := 15; -- 0.05% err
-    constant DES_FRAC      : natural := 10;
-    constant PV_SCALE      : natural := natural(0.256 * real(2**PV_FRAC));
-    constant PV_SCALE_SIZE : natural := ceil_log2(PV_SCALE) + 1;
-    constant PM_MUL_SIZE   : natural := PANDA_PORT_SIZE + PV_SCALE_SIZE;
-    constant PM_SCA_FRAC   : natural := PV_FRAC -
+    constant PV_FRAC        : natural := 15; -- 0.05% err
+    constant DES_FRAC       : natural := 10;
+    constant PV_SCALE       : natural := natural(0.256 * real(2**PV_FRAC));
+    constant PV_SCALE_SIZE  : natural := ceil_log2(PV_SCALE) + 1;
+    constant PM_MUL_SIZE    : natural := PANDA_PORT_SIZE + PV_SCALE_SIZE;
+    constant PM_SCA_FRAC    : natural := PV_FRAC -
                                         DES_FRAC;
-    constant RI_NM_SIZE    : natural := PM_MUL_SIZE - PM_SCA_FRAC;
+    constant RI_NM_SIZE     : natural := PM_MUL_SIZE - PM_SCA_FRAC;
+
+    constant MAX_OUT_SIZE   : natural := PANDA_PORT_SIZE +
+                                        MAX_FRAC;
 
     ---------------------------- DT ------------------------------
 
@@ -62,6 +65,11 @@ package global_constants is
 
     constant POS_ERR_SIZE : natural := RI_NM_SIZE;
     constant D_ERR_SIZE   : natural := POS_ERR_SIZE;
+
+    ---------------------------- Velocity---------------------------
+
+    constant V_DES_CAL_SIZE : natural := RI_NM_SIZE + DT_I_SIZE;
+    constant VEL_SIZE       : natural := RI_NM_SIZE + DT_I_SIZE;
 
     ---------------------------- P term ----------------------------
 
@@ -108,10 +116,10 @@ package global_constants is
     type natural_vector is array (natural range <>) of natural;
     function sum_signed_width(sizes : natural_vector) return natural;
 
-    constant widths : natural_vector(0 to 7) := (
+    constant widths : natural_vector(0 to 2) := (
         P_SCALED_SIZE,
         I_SCALED_SIZE,
-        D_SCALED_SIZE,
+        D_SCALED_SIZE
     );
     constant SUM_SCALED_SIZE : natural := sum_signed_width(widths);
 

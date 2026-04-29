@@ -32,7 +32,6 @@ architecture rtl of pid_tb is
     signal max_output_i   : panda_port;
 
     signal real_input_i   : panda_port;
-    signal v_des_i        : panda_port;
     signal setpoint_i     : panda_port;
 
     signal real_output_o  : panda_port;
@@ -69,7 +68,6 @@ begin
     max_integral_i <= std_logic_vector(to_signed(200000, max_integral_i'length));
     max_output_i   <= std_logic_vector(to_signed(200000, max_output_i'length));
     real_input_i   <= std_logic_vector(to_signed(0, real_input_i'length));
-    v_des_i        <= std_logic_vector(to_signed(0, v_des_i'length));
     setpoint_i     <= std_logic_vector(to_signed(-100, setpoint_i'length));
 
     -- Begin waiting 
@@ -108,7 +106,6 @@ UUT: entity work.pid
         max_output_i,
 
         real_input_i,
-        v_des_i,
         setpoint_i,
 
         real_output_o
