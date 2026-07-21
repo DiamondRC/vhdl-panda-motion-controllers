@@ -1,6 +1,7 @@
 --------------------------------------------------------------------------------
 --  File:   pid.vhd
---  Desc:   A generic cascaded PID to control with PVTs.
+--  Desc:   A generic PID.
+--  Author: richard.cunningham@diamond.ac.uk
 --------------------------------------------------------------------------------
 
 library ieee;
@@ -71,13 +72,13 @@ architecture no_pipeline of pid is
 
     -- PID clock
     -- 625 is ~200kHz
-    signal clk_count  : unsigned(PANDA_PORT_SIZE - 1 downto 0)
+    signal in_clk_cnt : unsigned(PANDA_PORT_SIZE - 1 downto 0)
         := (others => '0');
-    signal trigger    : std_logic
+    signal inner_trig : std_logic
         := '0';
 
     -- Error
-    signal prev_err   : signed(POS_ERR_SIZE - 1 downto 0);
+    signal prev_err   : signed(RI_NM_SIZE - 1 downto 0);
 
     -- Master Clock
     signal pm_mul     : signed(PM_MUL_SIZE - 1 downto 0)
@@ -92,7 +93,7 @@ architecture no_pipeline of pid is
         := (others => '0');
     signal prev_set   : signed(RI_NM_SIZE - 1 downto 0)
         := (others => '0');
-    signal d_err      : signed(D_ERR_SIZE - 1 downto 0)
+    signal d_err      : signed(RI_NM_SIZE - 1 downto 0)
         := (others => '0');
     signal round_out  : signed(PANDA_PORT_SIZE - 1 downto 0)
         := (others => '0');
@@ -102,7 +103,7 @@ architecture no_pipeline of pid is
         := (others => '0');
     signal vel        : signed(VEL_SIZE - 1 downto 0)
         := (others => '0');
-    signal pos_err    : signed(POS_ERR_SIZE - 1 downto 0)
+    signal pos_err    : signed(RI_NM_SIZE - 1 downto 0)
         := (others => '0');
     signal max_i_term : signed(MAX_I_SIZE - 1 downto 0)
         := (others => '0');
@@ -124,15 +125,15 @@ begin
     begin
         if rising_edge(clk_i) then
             if init_i = '1' then
-                trigger <= '0';
-                clk_count <= (others => '0');
+                inner_trig <= '0';
+                in_clk_cnt <= (others => '0');
             else
-                if clk_count = unsigned(pid_period_i) - 1 then
-                    trigger <= '1';
-                    clk_count <= (others => '0');
+                if in_clk_cnt = unsigned(pid_period_i) - 1 then
+                    inner_trig <= '1';
+                    in_clk_cnt <= (others => '0');
                 else
-                    trigger <= '0';
-                    clk_count <= clk_count + 1;
+                    inner_trig <= '0';
+                    in_clk_cnt <= in_clk_cnt + 1;
                 end if; -- Update count
             end if; -- Process reset
         end if; -- Clock
@@ -196,7 +197,7 @@ begin
                 real_output_o <= (others => '0');
                 do_work       <= '0';
 
-            elsif trigger = '1' then
+            elsif inner_trig = '1' then
                 -- Start logic next master clock
                 do_work <= '1';
 
@@ -242,16 +243,14 @@ begin
                                       resize(signed(dt_inv_i), DT_I_SIZE);
 
                         if do_vel_diff_i(0) = '1' then
-                            -- TODO
-                            -- d_err <= signed(real_input_i) - 
-                            -- signed(prev_position);
-                            d_err <= signed(pos_err) - signed(prev_err);
+                            -- Calculate dx...
+                            d_err  <= pos_store - prev_pos;
                         else
-                            -- Uses last PID work's prev_err
-                            d_err <= signed(pos_err) - signed(prev_err);
+                            -- ...or calculate de
+                            d_err  <= pos_err - prev_err;
                         end if;
 
-                        state     <= STAGE_2;
+                        state      <= STAGE_2;
 
                     when STAGE_2   => 
                         i_mul_err  <= pos_err * i_mul_dt;
@@ -267,7 +266,7 @@ begin
                     when STAGE_3     =>
                         -- Scale terms to consistent precision
                         -- with symmetric rounding.
-                        p_scaled <= round_sym(
+                        p_scaled     <= round_sym(
                             p_mul, P_SCA_FRAC, p_scaled'length
                         );
                         i_sca_part   <= round_sym(

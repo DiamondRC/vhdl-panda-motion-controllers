@@ -61,11 +61,6 @@ package global_constants is
     constant DT_SIZE   : natural := DT_INT + DT_FRAC;
     constant DT_I_SIZE : natural := DT_I_INT + DT_I_FRAC;
 
-    ---------------------------- Error -----------------------------
-
-    constant POS_ERR_SIZE : natural := RI_NM_SIZE;
-    constant D_ERR_SIZE   : natural := POS_ERR_SIZE;
-
     ---------------------------- Velocity---------------------------
 
     constant V_DES_CAL_SIZE : natural := RI_NM_SIZE + DT_I_SIZE;
@@ -74,7 +69,7 @@ package global_constants is
     ---------------------------- P term ----------------------------
 
     constant KP_I_SIZE      : natural := KP_I_INT + KP_I_FRAC;
-    constant P_MUL_SIZE     : natural := KP_I_SIZE + POS_ERR_SIZE;
+    constant P_MUL_SIZE     : natural := KP_I_SIZE + RI_NM_SIZE;
 
     constant P_SCA_FRAC     : natural := KP_I_FRAC +
                                          DES_FRAC -
@@ -86,7 +81,7 @@ package global_constants is
 
     constant KI_I_SIZE      : natural := KI_I_INT + KI_I_FRAC;
     constant I_MUL_DT_SIZE  : natural := KI_I_SIZE + DT_SIZE;
-    constant I_MUL_ERR_SIZE : natural := POS_ERR_SIZE + 
+    constant I_MUL_ERR_SIZE : natural := RI_NM_SIZE + 
                                          I_MUL_DT_SIZE;
     constant I_SCA_FRAC     : natural := DT_FRAC + 
                                          KI_I_FRAC +
@@ -106,7 +101,7 @@ package global_constants is
 
     constant KD_I_SIZE      : natural := KD_I_INT + KD_I_FRAC;
     constant D_MUL_DT_SIZE  : natural := KD_I_SIZE + DT_I_SIZE;
-    constant D_MUL_ERR_SIZE : natural := D_MUL_DT_SIZE + D_ERR_SIZE;
+    constant D_MUL_ERR_SIZE : natural := D_MUL_DT_SIZE + RI_NM_SIZE;
     constant D_SCA_FRAC     : natural := DT_I_FRAC + 
                                          KD_I_FRAC -
                                          MAX_FRAC;
