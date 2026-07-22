@@ -9,7 +9,9 @@ package panda_consts is
     -- DSP48E1 specs
     constant DSP_COEFF_W : natural := 25; -- DSP48E1 A-port operand (signed)
     constant DSP_DATA_W : natural := 18; -- DSP48E1 B-port operand (signed)
-    constant DSP_ACC_W : natural := 48; -- DSP48E1 P accumulator
+    constant DSP_ACCUM_GUARD : natural := 5; -- DSP48E1 accumulation guard bits
+    constant DSP_ACC_W : natural := 
+        DSP_COEFF_W + DSP_DATA_W + DSP_ACCUM_GUARD; -- DSP48E1 P accumulator
 
 end package panda_consts;
 
