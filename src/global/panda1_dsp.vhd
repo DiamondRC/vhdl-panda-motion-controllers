@@ -45,23 +45,29 @@ architecture trl of panda1_dsp is
 
     -- Shift registers
     signal load_d1 : std_logic;
+    signal load_d2 : std_logic;
     signal en_d1 : std_logic;
     signal en_d2 : std_logic;
 
 begin
-    -- Pipelining
-    load_d1 <= load_i;
-    load_d2 <= load_d1;
-    en_d1 <= en_i;
-    en_d2 <= en_d1;
+    -- Load or allow accumulation.
+    opmode <= "0000101" when load_d1 = '1' else "0100101";
 
-    if load_d1 = '1' then
-        -- Allow accumulation
-        opmode <= '0000101';
-    else
-        -- Dis-allow accumulation
-        opmode <= '0100101';
-    end if;
+    process(clk_i)
+    begin
+        if rising_edge(clk_i) then
+            -- Pipelining
+            if rst_i = '1' then
+                load_d1 <= '0';
+                en_d1 <= '0';
+                en_d2 <= '0';
+            else
+                load_d1 <= load_i;
+                en_d1   <= en_i;
+                en_d2   <= en_d1;
+            end if;
+        end if;
+    end process;
 
     -- SLV -> signed boundary
     acc_o   <= signed(p_slv);
