@@ -30,13 +30,38 @@ entity panda1_dsp is
 end entity panda1_dsp;
 
 architecture trl of panda1_dsp is
+    -- 
     signal p_slv : std_logic_vector(47 downto 0);
     signal pcout_slv : std_logic_vector(47 downto 0);
     signal a_ext : std_logic_vector(29 downto 0);
+
+    -- Opmodes
     signal opmode : std_logic_vector(6 downto 0);
+    -- OPMODE is encoded as Z(6:4) & Y(3:2) & X(1:0)
+    -- To multiply set X=Y=M (01 each, we always run).
+    -- Z is the accumulation switch we control on load_i.
+    --
+    -- Feeds the ALU through the DSPs internal register => delay by 1
+
+    -- Shift registers
+    signal load_d1 : std_logic;
+    signal en_d1 : std_logic;
+    signal en_d2 : std_logic;
 
 begin
-    opmode <= (others => '0');
+    -- Pipelining
+    load_d1 <= load_i;
+    load_d2 <= load_d1;
+    en_d1 <= en_i;
+    en_d2 <= en_d1;
+
+    if load_d1 = '1' then
+        -- Allow accumulation
+        opmode <= '0000101';
+    else
+        -- Dis-allow accumulation
+        opmode <= '0100101';
+    end if;
 
     -- SLV -> signed boundary
     acc_o   <= signed(p_slv);
@@ -128,7 +153,7 @@ begin
             CED => '1',                       -- 1-bit input: Clock enable input for DREG
             CEINMODE => '1',                  -- 1-bit input: Clock enable input for INMODEREG
             CEM => '1',                       -- 1-bit input: Clock enable input for MREG
-            CEP => '1',                       -- 1-bit input: Clock enable input for PREG (TODO: gate with en_i)
+            CEP => en_d2,                       -- 1-bit input: Clock enable input for PREG (TODO: gate with en_i)
             RSTA => rst_i,                    -- 1-bit input: Reset input for AREG
             RSTALLCARRYIN => rst_i,           -- 1-bit input: Reset input for CARRYINREG
             RSTALUMODE => rst_i,              -- 1-bit input: Reset input for ALUMODEREG

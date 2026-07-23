@@ -55,42 +55,17 @@ architecture main of mac_lane is
     signal en_d2 : std_logic := '0';
 
 begin
-
-    process(clk_i)
-    begin
-        if rising_edge(clk_i) then
-            if init_i = '1' then
-                a_reg <= (others => '0');
-                b_reg <= (others => '0');
-                m_reg <= (others => '0');
-                load_d1 <= '0';
-                load_d2 <= '0';
-                en_d1 <= '0';
-                en_d2 <= '0';
-            else
-                -- Stage 1
-                a_reg <= a_i;
-                b_reg <= b_i;
-                load_d1 <= load_i;
-                en_d1 <= en_i;
-
-                -- Stage 2
-                m_reg <= a_reg * b_reg;
-                load_d2 <= load_d1;
-                en_d2 <= en_d1;
-
-                -- Stage 3
-                if en_d2 = '1' then
-                    if load_d2 = '1' then
-                        -- Load
-                        acc_o <= resize(m_reg, ACC_W);
-                    else 
-                        -- Accum
-                        acc_o <= acc_o + resize(m_reg, ACC_W);
-                    end if; -- load
-                end if; -- enable
-            end if; -- reset/logic
-        end if; -- clock
-    end process;
-
+    -- A single PandA DSP.
+    DSP : entity work.panda1_dsp
+    port map (
+        clk_i => clk_i,
+        rst_i => init_i,
+        load_i => load_i,
+        en_i => en_i,
+        a_i => a_i,
+        b_i => b_i,
+        pcin_i => (others => '0'),
+        acc_o => acc_o,
+        pcout_o => open
+    );
 end main;
