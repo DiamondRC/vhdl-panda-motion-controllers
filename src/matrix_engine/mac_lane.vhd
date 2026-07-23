@@ -25,7 +25,7 @@ entity mac_lane is
         ACC_W : natural := DSP_ACC_W -- P accumulator
     );
     port (
-        clk_i  : in std_logic; -- Servo rate clock, not PandA
+        clk_i  : in std_logic; -- PandA clock
         init_i : in std_logic; -- PandA reset
 
         a_i : in signed(COEFF_W - 1 downto 0); -- Gain

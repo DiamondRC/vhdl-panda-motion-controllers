@@ -107,13 +107,13 @@ begin
                         -- Once fed advance
                         if col = N - 1 then
                             col <= 0;
-                            state <= drain_cnt;
+                            state <= DRAIN;
                         else 
                             col <= col + 1;
                         end if;
 
                     -- Wait for lane calculations
-                    when drain_cnt =>
+                    when DRAIN =>
                         -- Await the 2 cycle lane latency
                         if drain_cnt = 1 then
                             state <= CAPTURE;
