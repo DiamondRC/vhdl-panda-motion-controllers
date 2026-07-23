@@ -48,8 +48,15 @@ architecture rtl of mac_engine_td is
         constant name : in string;
         constant k : mac_gain_mat;
         constant x : mac_data_vec;
-        constant exp : in mac_acc_vec
-    ) is 
+        constant exp : in mac_acc_vec;
+
+        signal clk_i : in std_logic;
+        signal k_i : out mac_gain_mat;
+        signal x_i : out mac_data_vec;
+        signal start_i : out std_logic;
+        signal done_o : in std_logic;
+        signal u_o : in mac_acc_vec
+    ) is
     begin
         -- Load K and x
         k_i <= k;
@@ -126,7 +133,8 @@ begin
         ),
         (
             (uv(2), uv(3), uv(4))
-        )
+        ),
+        clk_i, k_i, x_i, start_i, done_o, u_o
     );
     run_test(
         "lower-tri", 
@@ -140,7 +148,8 @@ begin
         ),
         (
             (uv(2), uv(5), uv(9))
-        )
+        ),
+        clk_i, k_i, x_i, start_i, done_o, u_o
     );
     run_test(
         "negatives", 
@@ -154,7 +163,8 @@ begin
         ),
         (
             (uv(-2), uv(1), uv(1))
-        )
+        ),
+        clk_i, k_i, x_i, start_i, done_o, u_o
     );
     run_test(
         "extreme",
@@ -167,8 +177,15 @@ begin
             (xv(131071), xv(-131070), xv(-131070))
         ),
         (
-            (uv(2199006347265), uv(-1099495112700), uv(-2002381890421))
-        )
+            (
+                resize(kv(16777215) * xv(131071), DSP_ACC_W),
+                resize(kv(8388610) * xv(-131070), DSP_ACC_W),
+                resize(kv(1499999) * xv(131071), DSP_ACC_W)
+                    + resize(kv(-10) * xv(-131070), DSP_ACC_W)
+                    + resize(kv(16777215) * xv(-131070), DSP_ACC_W)
+            )
+        ),
+        clk_i, k_i, x_i, start_i, done_o, u_o
     );
 
     -- Test interrupt/restart recovery
@@ -207,7 +224,8 @@ begin
         ),
         (
             (uv(-520), uv(169), uv(6037))
-        )
+        ),
+        clk_i, k_i, x_i, start_i, done_o, u_o
     );
 
     -- If successful we can finish
