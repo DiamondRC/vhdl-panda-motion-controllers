@@ -30,23 +30,18 @@ entity panda1_dsp is
 end entity panda1_dsp;
 
 architecture trl of panda1_dsp is
-
-    -- std_logic_vector <-> signed boundary for the DSP's SLV ports
-    signal p_slv     : std_logic_vector(47 downto 0);
+    signal p_slv : std_logic_vector(47 downto 0);
     signal pcout_slv : std_logic_vector(47 downto 0);
-
-    -- ALU X/Y/Z mux control.
-    -- TODO(OPMODE step): drive from load_i (Z=0 load / Z=P accumulate / Z=PCIN cascade).
+    signal a_ext : std_logic_vector(29 downto 0);
     signal opmode : std_logic_vector(6 downto 0);
 
 begin
-
-    -- Placeholder until the OPMODE step: X=Y=Z=0 -> ALU output 0 (non-functional MAC).
     opmode <= (others => '0');
 
     -- SLV -> signed boundary
     acc_o   <= signed(p_slv);
     pcout_o <= signed(pcout_slv);
+    a_ext   <= std_logic_vector(resize(a_i, 30));
 
     dsp_inst : DSP48E1
         generic map (
@@ -114,7 +109,7 @@ begin
             OPMODE => opmode,                 -- 7-bit input: Operation mode input (TODO: load/accumulate)
 
             -- Data: 30-bit (each) input: Data Ports
-            A => std_logic_vector(resize(a_i, 30)),
+            A => a_ext,
             B => std_logic_vector(b_i),
             C => (others => '0'),             -- 48-bit input: C data input
             CARRYIN => '0',                   -- 1-bit input: Carry input signal
