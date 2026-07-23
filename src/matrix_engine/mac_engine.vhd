@@ -55,7 +55,7 @@ architecture main of mac_engine is
     -- Vector ranges
     signal row : natural range 0 to M - 1 := 0;
     signal col : natural range 0 to N - 1 := 0;
-    signal drain : natural range 0 to 2 := 0;
+    signal drain_cnt : natural range 0 to 2 := 0;
 
 begin
     -- MAC lane
@@ -87,7 +87,7 @@ begin
                 -- Vector ranges
                 row <= 0;
                 col <= 0;
-                drain <= 0;
+                drain_cnt <= 0;
 
                 -- Other
                 u_o <= (others => (others => '0'));
@@ -107,19 +107,19 @@ begin
                         -- Once fed advance
                         if col = N - 1 then
                             col <= 0;
-                            state <= DRAIN;
+                            state <= drain_cnt;
                         else 
                             col <= col + 1;
                         end if;
 
                     -- Wait for lane calculations
-                    when DRAIN =>
+                    when drain_cnt =>
                         -- Await the 2 cycle lane latency
-                        if drain = 1 then
+                        if drain_cnt = 1 then
                             state <= CAPTURE;
-                            drain <= 0;
+                            drain_cnt <= 0;
                         else
-                            drain <= drain + 1;
+                            drain_cnt <= drain_cnt + 1;
                         end if;
 
                     -- Store lane calculation results
