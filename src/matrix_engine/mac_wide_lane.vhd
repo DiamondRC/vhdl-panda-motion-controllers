@@ -117,7 +117,7 @@ begin
                     load_i => load_i,
                     en_i => en_i,
                     a_i => a_chunks(i),
-                    b_i => b_chunks(i),
+                    b_i => b_chunks(j),
                     pcin_i => (others => '0'),
                     acc_o => cell_acc(i, j),
                     pcout_o => open
@@ -142,6 +142,7 @@ begin
                 );
             end loop;
         end loop;
+        acc_o <= v;
 
     end process;
 
