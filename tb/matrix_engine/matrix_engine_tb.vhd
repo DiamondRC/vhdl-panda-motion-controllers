@@ -93,6 +93,8 @@ architecture rtl of mac_engine_td is
                     ", expected " &
                     integer'image(to_integer(exp(r)))
                 severity error;
+            else 
+                report name & "passes" severity note;
             end if;
         end loop;
     end procedure;

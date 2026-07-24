@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---  File:   mac_wide_lane_tb.vhd
+--  File:   mac_lane_tb.vhd
 --  Desc:   The testbench to drive the wide MAC lane for the PandA.
 --  Author: richard.cunningham@diamond.ac.uk
 --------------------------------------------------------------------------------
@@ -15,10 +15,10 @@ use work.num_utils.all;
 use work.matrix_consts.all;
 
 
-entity mac_wide_lane_td is
-end entity mac_wide_lane_td;
+entity mac_lane_td is
+end entity mac_lane_td;
 
-architecture rtl of mac_wide_lane_td is
+architecture rtl of mac_lane_td is
     -- System
     constant p_clk_period : time := MASTER_CLK_PERIOD;
     signal sim_done : boolean := false;
@@ -91,6 +91,8 @@ architecture rtl of mac_wide_lane_td is
                 ", expected " &
                 integer'image(to_integer(exp))
             severity error;
+        else 
+            report name & "passes" severity note;
         end if;
     end procedure;
 
@@ -123,7 +125,7 @@ begin
     end process;
 
     -- A lane with a single DSP unit.
-    narrow_uut: entity work.mac_wide_lane
+    narrow_uut: entity work.mac_lane
     generic map (
         A_W => DSP_COEFF_W,
         B_W => DSP_DATA_W,
@@ -142,7 +144,7 @@ begin
     );
 
     -- A lane featuring cacaded DSP units.
-    wide_uut: entity work.mac_wide_lane
+    wide_uut: entity work.mac_lane
     generic map (
         A_W => LANE_A_W,
         B_W => LANE_B_W,

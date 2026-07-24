@@ -59,7 +59,7 @@ architecture main of mac_engine is
 
 begin
     -- MAC lane
-    u_lane : entity work.mac_wide_lane
+    u_lane : entity work.mac_lane
     generic map (
         A_W => LANE_A_W,
         B_W => LANE_B_W,
