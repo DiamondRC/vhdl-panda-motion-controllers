@@ -23,6 +23,7 @@ architecture rtl of mac_engine_td is
     -- System
     constant p_clk_period : time := MASTER_CLK_PERIOD;
     signal sim_done : boolean := false;
+    signal fail : std_logic := '0';
 
     -- Engine generics
     constant M : natural := 3;
@@ -54,7 +55,8 @@ architecture rtl of mac_engine_td is
         signal x_i : out mac_data_vec;
         signal start_i : out std_logic;
         signal done_o : in std_logic;
-        signal u_o : in mac_acc_vec
+        signal u_o : in mac_acc_vec;
+        signal fail_o : out std_logic
     ) is
         -- Golden reference: plain full-width u = K * x
         variable exp : mac_acc_vec(u_o'range);
@@ -81,7 +83,8 @@ architecture rtl of mac_engine_td is
 
         -- Report test result
         for r in exp'range loop
-            assert u_o(r) = exp(r)
+            if u_o(r) /= exp(r) then
+                fail_o <= '1';
                 report name &
                     ": u(" &
                     integer'image(r) &
@@ -90,6 +93,7 @@ architecture rtl of mac_engine_td is
                     ", expected " &
                     integer'image(to_integer(exp(r)))
                 severity error;
+            end if;
         end loop;
     end procedure;
 
@@ -152,7 +156,7 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o
+        clk_i, k_i, x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "lower-tri",
@@ -164,7 +168,7 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o
+        clk_i, k_i, x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "negatives",
@@ -176,7 +180,7 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o
+        clk_i, k_i, x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "extreme",
@@ -188,7 +192,7 @@ begin
         (
             (xv(131071), xv(-131070), xv(-131070))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o
+        clk_i, k_i, x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "wide",
@@ -200,7 +204,7 @@ begin
         (
             (xv(50000000), xv(-40000000), xv(30000000))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o
+        clk_i, k_i, x_i, start_i, done_o, u_o, fail
     );
 
     -- Test interrupt/restart recovery
@@ -237,11 +241,16 @@ begin
         (
             (xv(20), xv(3), xv(54))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o
+        clk_i, k_i, x_i, start_i, done_o, u_o, fail
     );
 
-    -- If successful we can finish
-    report "ENGINE TESTS PASS - Engine passes its MOT" severity note;
+    -- Report the overall result
+    wait until rising_edge(clk_i);
+    if fail = '0' then
+        report "ENGINE TESTS PASS - Engine passes its MOT" severity note;
+    else
+        report "ENGINE TESTS FAILED" severity failure;
+    end if;
     sim_done <= true;
 
     wait;

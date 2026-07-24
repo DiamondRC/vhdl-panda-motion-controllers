@@ -22,6 +22,7 @@ architecture rtl of mac_wide_lane_td is
     -- System
     constant p_clk_period : time := MASTER_CLK_PERIOD;
     signal sim_done : boolean := false;
+    signal fail : std_logic := '0';
 
     -- Shared
     signal clk_i : std_logic := '0';
@@ -52,7 +53,8 @@ architecture rtl of mac_wide_lane_td is
         signal b_i    : out signed;
         signal load_i : out std_logic;
         signal en_i   : out std_logic;
-        signal acc_o  : in  signed
+        signal acc_o  : in  signed;
+        signal fail_o : out std_logic
     ) is
         -- Golden reference: 
         -- plain full-width multiply-accumulate
@@ -81,13 +83,15 @@ architecture rtl of mac_wide_lane_td is
         wait until rising_edge(clk_i);
 
         -- Report test result
-        assert acc_o = exp
+        if acc_o /= exp then
+            fail_o <= '1';
             report name &
                 ": acc got " &
                 integer'image(to_integer(acc_o)) &
                 ", expected " &
                 integer'image(to_integer(exp))
             severity error;
+        end if;
     end procedure;
 
     -- Test helpers
@@ -172,19 +176,19 @@ begin
         "narrow basic",
         an(2), an(3), an(4),
         bn(5), bn(6), bn(7),
-        clk_i, n_a, n_b, n_load, n_en, n_acc
+        clk_i, n_a, n_b, n_load, n_en, n_acc, fail
     );
     run_mac(
         "narrow negatives",
         an(-2), an(3), an(-4),
         bn(5), bn(-6), bn(7),
-        clk_i, n_a, n_b, n_load, n_en, n_acc
+        clk_i, n_a, n_b, n_load, n_en, n_acc, fail
     );
     run_mac(
         "extreme single",
         an(1499999), an(-10), an(16777215),
         bn(131071), bn(-131070), bn(-131070),
-        clk_i, n_a, n_b, n_load, n_en, n_acc
+        clk_i, n_a, n_b, n_load, n_en, n_acc, fail
     );
 
     -- Wide (2x2) lane: the cascaded grid
@@ -192,35 +196,40 @@ begin
         "wide basic",
         aw(100), aw(200), aw(300),
         bw(5), bw(6), bw(7),
-        clk_i, w_a, w_b, w_load, w_en, w_acc
+        clk_i, w_a, w_b, w_load, w_en, w_acc, fail
     );
     run_mac(
         "wide cross-chunk",
         shift_left(aw(1), DSP_COEFF_W - 1) + aw(3), aw(1), aw(0),
         shift_left(bw(1), DSP_DATA_W - 1) + bw(5), bw(1), bw(0),
-        clk_i, w_a, w_b, w_load, w_en, w_acc
+        clk_i, w_a, w_b, w_load, w_en, w_acc, fail
     );
     run_mac(
         "wide max",
         max_s(LANE_A_W), aw(0), aw(0),
         max_s(LANE_B_W), bw(0), bw(0),
-        clk_i, w_a, w_b, w_load, w_en, w_acc
+        clk_i, w_a, w_b, w_load, w_en, w_acc, fail
     );
     run_mac(
         "wide min",
         min_s(LANE_A_W), aw(0), aw(0),
         min_s(LANE_B_W), bw(0), bw(0),
-        clk_i, w_a, w_b, w_load, w_en, w_acc
+        clk_i, w_a, w_b, w_load, w_en, w_acc, fail
     );
     run_mac(
         "wide mixed sign",
         max_s(LANE_A_W), aw(0), aw(0),
         min_s(LANE_B_W), bw(0), bw(0),
-        clk_i, w_a, w_b, w_load, w_en, w_acc
+        clk_i, w_a, w_b, w_load, w_en, w_acc, fail
     );
 
-    -- If successful we can finish
-    report "LANE TESTS PASS" severity note;
+    -- Report the overall result
+    wait until rising_edge(clk_i);
+    if fail = '0' then
+        report "LANE TESTS PASS" severity note;
+    else
+        report "LANE TESTS FAILED" severity failure;
+    end if;
     sim_done <= true;
 
     wait;
