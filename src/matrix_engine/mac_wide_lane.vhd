@@ -41,8 +41,8 @@ end entity mac_wide_lane;
 architecture main of mac_wide_lane is
     -- Constants
     constant PROD_W : natural := A_W + B_W ;
-    constant N_A : natural := num_chunks(A_W, DSP_COEFF_W); -- 25 bit DSP chunks
-    constant N_B : natural := num_chunks(B_W, DSP_DATA_W); -- 18 bit DSP chunks
+    constant N_A : natural := num_chunks(A_W, DSP_COEFF_W); -- # 25 bit DSP chunks
+    constant N_B : natural := num_chunks(B_W, DSP_DATA_W); -- # 18 bit DSP chunks
     constant A_STRIDE : natural := DSP_COEFF_W - 1; -- 24
     constant B_STRIDE : natural := DSP_DATA_W  - 1; -- 17
 
@@ -51,17 +51,19 @@ architecture main of mac_wide_lane is
     type b_chunks_t is array (0 to N_B - 1) of signed(DSP_DATA_W - 1 downto 0);
     type parts_t is array (0 to N_A - 1, 0 to N_B - 1) of
         signed(DSP_COEFF_W + DSP_DATA_W - 1 downto 0);
+    type cell_acc_t is array (0 to N_A - 1, 0 to N_B - 1) of signed(DSP_ACC_W - 1 downto 0);
 
     -- Signals
     signal a_chunks : a_chunks_t;
     signal b_chunks : b_chunks_t;
+    signal cell_acc : cell_acc_t;
     signal parts : parts_t; -- stores multiplication result
     signal full_prod : signed(PROD_W - 1 downto 0);
 
 begin
 
     -- ---------------------------------------------------------------------------
-    -- Split up input to feed into multiple DSPs.
+    -- Split up input to feed into DSP unit(s).
     --
     -- If N_A/N_B = 1 generate range = null so the upper
     -- range is the entire operand.
@@ -105,54 +107,43 @@ begin
 
     -- ---------------------------------------------------------------------------
 
-    -- Multiply the results together.
-    gen_pa : for i in 0 to N_A - 1 generate
-        gen_pb : for j in 0 to N_B - 1 generate
-            parts(i, j) <= a_chunks(i) * b_chunks(j);
-        end generate gen_pb;
-    end generate gen_pa;
+    -- Multiply and accumulate the result in DSP unit(s).
+    gen_a : for i in 0 to N_A - 1 generate
+        gen_b : for j in 0 to N_B - 1 generate
+            cell : entity work.panda1_dsp
+                port map (
+                    clk_i => clk_i,
+                    rst_i => init_i,
+                    load_i => load_i,
+                    en_i => en_i,
+                    a_i => a_chunks(i),
+                    b_i => b_chunks(i),
+                    pcin_i => (others => '0'),
+                    acc_o => cell_acc(i, j),
+                    pcout_o => open
+                );
+        end generate;
+    end generate;
 
     -- ---------------------------------------------------------------------------
 
-    -- Combine results.
-    -- Shift partials back into the full product if applicable.
-    combine : process(parts)
-        variable v : signed(PROD_W - 1 downto 0);
+    -- Combine all the cell outputs
+    combine : process(cell_acc)
+        variable v : signed(ACC_W - 1 downto 0);
     begin
         v := (others => '0');
-        for i in 0 to N_A - 1 loop
-            for j in 0 to N_B - 1 loop
+        for i in 0 to N_A -1 loop
+            for j in 0 to N_B -1 loop
                 v := v + shift_left(
                     resize(
-                        parts(i, j),
-                        PROD_W
+                        cell_acc(i, j), ACC_W
                     ),
                     A_STRIDE * i + B_STRIDE * j
                 );
             end loop;
         end loop;
-        full_prod <= v;
-    end process combine;
 
-    -- ---------------------------------------------------------------------------
-
-    -- Accumulate the result
-    accumulate : process(clk_i)
-    begin
-        if rising_edge(clk_i) then
-            if init_i = '1' then
-                acc_o <= (others => '0');
-            elsif en_i = '1' then
-                if load_i = '1' then
-                    -- First term, overwrite
-                    acc_o <= resize(full_prod, ACC_W);
-                else 
-                    -- Other terms, accumulate
-                    acc_o <= acc_o + resize(full_prod, ACC_W);
-                end if; -- load
-            end if; -- reset/enable
-        end if; -- clk
-    end process accumulate;
+    end process;
 
     -- ---------------------------------------------------------------------------
     
