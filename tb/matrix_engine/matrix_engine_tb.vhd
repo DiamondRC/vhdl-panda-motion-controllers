@@ -21,7 +21,7 @@ end entity mac_engine_td;
 
 architecture rtl of mac_engine_td is
     -- System
-    constant p_clk_period : time := MASTER_CLK_PERIOD; 
+    constant p_clk_period : time := MASTER_CLK_PERIOD;
     signal sim_done : boolean := false;
 
     -- Engine generics
@@ -31,10 +31,10 @@ architecture rtl of mac_engine_td is
     -- Engine ports
     signal clk_i : std_logic := '0';
     signal init_i : std_logic := '0';
-    signal k_i : mac_gain_mat(0 to M - 1, 0 to N - 1) := 
+    signal k_i : mac_gain_mat(0 to M - 1, 0 to N - 1) :=
         -- 2D array => two levels + bits
         (others => (others => (others => '0')));
-    signal x_i : mac_data_vec(0 to N - 1) := 
+    signal x_i : mac_data_vec(0 to N - 1) :=
         -- 1D array => one level + bits
         (others => (others => '0'));
 
@@ -48,7 +48,6 @@ architecture rtl of mac_engine_td is
         constant name : in string;
         constant k : mac_gain_mat;
         constant x : mac_data_vec;
-        constant exp : in mac_acc_vec;
 
         signal clk_i : in std_logic;
         signal k_i : out mac_gain_mat;
@@ -57,7 +56,16 @@ architecture rtl of mac_engine_td is
         signal done_o : in std_logic;
         signal u_o : in mac_acc_vec
     ) is
+        -- Golden reference: plain full-width u = K * x
+        variable exp : mac_acc_vec(u_o'range);
     begin
+        for r in exp'range loop
+            exp(r) := (others => '0');
+            for c in x'range loop
+                exp(r) := exp(r) + resize(k(r, c) * x(c), exp(r)'length);
+            end loop;
+        end loop;
+
         -- Load K and x
         k_i <= k;
         x_i <= x;
@@ -74,8 +82,8 @@ architecture rtl of mac_engine_td is
         -- Report test result
         for r in exp'range loop
             assert u_o(r) = exp(r)
-                report name & 
-                    ": u(" & 
+                report name &
+                    ": u(" &
                     integer'image(r) &
                     ") got " &
                     integer'image(to_integer(u_o(r))) &
@@ -86,17 +94,13 @@ architecture rtl of mac_engine_td is
     end procedure;
 
     -- Test helpers
-    function kv(v : integer) return signed is 
-    begin 
+    function kv(v : integer) return signed is
+    begin
     return to_signed(v, LANE_B_W); end;
 
-    function xv(v : integer) return signed is 
-    begin 
+    function xv(v : integer) return signed is
+    begin
     return to_signed(v, LANE_A_W); end;
-
-    function uv(v : integer) return signed is 
-    begin 
-    return to_signed(v, LANE_ACC_W); end;
 
 begin
 
@@ -139,7 +143,7 @@ begin
 
     -- Run all tests
     run_test(
-        "identity", 
+        "identity",
         (
             (kv(1), kv(0), kv(0)),
             (kv(0), kv(1), kv(0)),
@@ -148,13 +152,10 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        (
-            (uv(2), uv(3), uv(4))
-        ),
         clk_i, k_i, x_i, start_i, done_o, u_o
     );
     run_test(
-        "lower-tri", 
+        "lower-tri",
         (
             (kv(1), kv(0), kv(0)),
             (kv(1), kv(1), kv(0)),
@@ -163,13 +164,10 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        (
-            (uv(2), uv(5), uv(9))
-        ),
         clk_i, k_i, x_i, start_i, done_o, u_o
     );
     run_test(
-        "negatives", 
+        "negatives",
         (
             (kv(-1), kv(0), kv(0)),
             (kv(-1), kv(1), kv(0)),
@@ -177,9 +175,6 @@ begin
         ),
         (
             (xv(2), xv(3), xv(4))
-        ),
-        (
-            (uv(-2), uv(1), uv(1))
         ),
         clk_i, k_i, x_i, start_i, done_o, u_o
     );
@@ -193,14 +188,17 @@ begin
         (
             (xv(131071), xv(-131070), xv(-131070))
         ),
+        clk_i, k_i, x_i, start_i, done_o, u_o
+    );
+    run_test(
+        "wide",
         (
-            (
-                resize(kv(16777215) * xv(131071), DSP_ACC_W),
-                resize(kv(8388610) * xv(-131070), DSP_ACC_W),
-                resize(kv(1499999) * xv(131071), DSP_ACC_W)
-                    + resize(kv(-10) * xv(-131070), DSP_ACC_W)
-                    + resize(kv(16777215) * xv(-131070), DSP_ACC_W)
-            )
+            (kv(1000000), kv(0), kv(0)),
+            (kv(0), kv(-500000), kv(0)),
+            (kv(2000000), kv(-3000000), kv(4000000))
+        ),
+        (
+            (xv(50000000), xv(-40000000), xv(30000000))
         ),
         clk_i, k_i, x_i, start_i, done_o, u_o
     );
@@ -238,9 +236,6 @@ begin
         ),
         (
             (xv(20), xv(3), xv(54))
-        ),
-        (
-            (uv(-520), uv(169), uv(6037))
         ),
         clk_i, k_i, x_i, start_i, done_o, u_o
     );
