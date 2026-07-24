@@ -46,11 +46,11 @@ architecture main of mac_engine is
     signal state : engine_state := IDLE;
 
     -- Lane wiring
-    signal lane_a    : signed(DSP_COEFF_W - 1 downto 0);
-    signal lane_b    : signed(DSP_DATA_W  - 1 downto 0);
+    signal lane_a    : signed(LANE_A_W - 1 downto 0);
+    signal lane_b    : signed(LANE_B_W  - 1 downto 0);
     signal lane_load : std_logic;
     signal lane_en   : std_logic;
-    signal lane_acc  : signed(DSP_ACC_W  - 1 downto 0);
+    signal lane_acc  : signed(LANE_ACC_W  - 1 downto 0);
 
     -- Vector ranges
     signal row : natural range 0 to M - 1 := 0;
@@ -59,8 +59,13 @@ architecture main of mac_engine is
 
 begin
     -- MAC lane
-    u_lan : entity work.mac_lane
-    port map (
+    u_lane : entity work.mac_wide_lane
+    generic map (
+        A_W => LANE_A_W,
+        B_W => LANE_B_W,
+        ACC_W => LANE_ACC_W
+    )
+    port map ( 
         clk_i => clk_i,
         init_i => init_i,
         a_i => lane_a,
@@ -71,8 +76,8 @@ begin
     );
 
     -- Drive inputs with combinational mux
-    lane_a    <= k_i(row, col);
-    lane_b    <= x_i(col);
+    lane_a    <= x_i(col); -- input
+    lane_b    <= k_i(row, col); -- gain matrix
     lane_en   <= '1' when state = FEED else '0';
     lane_load <= '1' when (state = FEED and col = 0) else '0';
 

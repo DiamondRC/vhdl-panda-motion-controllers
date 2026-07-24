@@ -88,15 +88,15 @@ architecture rtl of mac_engine_td is
     -- Test helpers
     function kv(v : integer) return signed is 
     begin 
-    return to_signed(v, DSP_COEFF_W); end;
+    return to_signed(v, LANE_B_W); end;
 
     function xv(v : integer) return signed is 
     begin 
-    return to_signed(v, DSP_DATA_W); end;
+    return to_signed(v, LANE_A_W); end;
 
     function uv(v : integer) return signed is 
     begin 
-    return to_signed(v, DSP_ACC_W); end;
+    return to_signed(v, LANE_ACC_W); end;
 
 begin
 
@@ -108,6 +108,23 @@ begin
         end loop;
         wait;
     end process;
+
+    uut: entity work.mac_engine
+    generic map (
+        M => M,
+        N => N
+    )
+    port map (
+        clk_i => clk_i,
+        init_i => init_i,
+        k_i => k_i,
+        x_i => x_i,
+
+        start_i => start_i,
+
+        done_o => done_o,
+        u_o => u_o
+    );
 
 process
 begin
@@ -234,23 +251,5 @@ begin
 
     wait;
 end process;
-
-
-uut: entity work.mac_engine
-    generic map (
-        M => M,
-        N => N
-    )
-    port map (
-        clk_i => clk_i,
-        init_i => init_i,
-        k_i => k_i,
-        x_i => x_i,
-
-        start_i => start_i,
-
-        done_o => done_o,
-        u_o => u_o
-    );
 
 end architecture rtl;
