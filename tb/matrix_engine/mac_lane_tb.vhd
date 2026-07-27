@@ -29,15 +29,19 @@ architecture rtl of mac_lane_td is
     signal init_i : std_logic := '0';
 
     -- Narrow (1x1) lane ports
-    signal n_a : signed(DSP_COEFF_W - 1 downto 0) := (others => '0');
-    signal n_b : signed(DSP_DATA_W  - 1 downto 0) := (others => '0');
+    signal n_a : signed(DSP_COEFF_W - 1 downto 0) :=
+        (others => '0');
+    signal n_b : signed(DSP_DATA_W  - 1 downto 0) :=
+        (others => '0');
     signal n_load : std_logic := '0';
     signal n_en : std_logic := '0';
     signal n_acc : signed(DSP_ACC_W - 1 downto 0);
 
     -- Wide (2x2) lane ports
-    signal w_a : signed(LANE_A_W - 1 downto 0) := (others => '0');
-    signal w_b : signed(LANE_B_W - 1 downto 0) := (others => '0');
+    signal w_a : signed(LANE_A_W - 1 downto 0) :=
+        (others => '0');
+    signal w_b : signed(LANE_B_W - 1 downto 0) :=
+        (others => '0');
     signal w_load : std_logic := '0';
     signal w_en : std_logic := '0';
     signal w_acc : signed(LANE_ACC_W - 1 downto 0);
