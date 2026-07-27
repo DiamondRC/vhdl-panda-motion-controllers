@@ -95,7 +95,7 @@ architecture rtl of bram_store_td is
                 ": got " &
                 integer'image(to_integer(rd_data_o)) &
                  ", expected " &
-                 integer'image(to_integer(exp))
+                integer'image(exp)
             severity error;
         end if;
 
