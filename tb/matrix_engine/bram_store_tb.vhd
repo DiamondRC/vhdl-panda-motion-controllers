@@ -88,6 +88,7 @@ architecture rtl of bram_store_td is
         -- Two cycle delay (BRAM internal reg + BRAM external reg)
         wait until rising_edge(clk_i);
         wait until rising_edge(clk_i);
+        wait until falling_edge(clk_i); -- sample settled value off the clock edge
 
         if rd_data_o /= to_signed(exp, rd_data_o'length) then
             fail_o <= '1';
@@ -121,6 +122,7 @@ architecture rtl of bram_store_td is
         rd_addr_i <= to_unsigned(new_addr, rd_addr_i'length);
         
         wait until rising_edge(clk_i); -- one cycle, still has old values
+        wait until falling_edge(clk_i); -- sample settled value off the clock edge
         if rd_data_o /= to_signed(old_val, rd_data_o'length) then
             fail_o <= '1';
             report name &
@@ -132,6 +134,7 @@ architecture rtl of bram_store_td is
         end if;
 
         wait until rising_edge(clk_i); -- two cycles, new emerges
+        wait until falling_edge(clk_i); -- sample settled value off the clock edge
         if rd_data_o /= to_signed(new_val, rd_data_o'length) then
             fail_o <= '1';
             report name &
