@@ -16,7 +16,7 @@ use ieee.numeric_std.all;
 
 -- use work.panda_consts.all;
 -- use work.fp_utils.all;
--- use work.num_utils.all;
+use work.num_utils.all;
 use work.matrix_consts.all;
 -- use work.mac_utils.all;
 
@@ -35,7 +35,10 @@ entity mac_array is
         clk_i  : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA reset
 
-        k_i : in mac_gain_mat(0 to M - 1, 0 to N - 1); -- (row, col)
+        wr_addr_i : in unsigned(ceil_log2(M * N) - 1 downto 0);
+        wr_data_i : in signed(LANE_B_W - 1 downto 0);
+        wr_en_i : in std_logic;
+
         x_i : in mac_data_vec(0 to N - 1);
 
         start_i : in std_logic;
@@ -62,7 +65,9 @@ begin
                 clk_i => clk_i,
                 init_i => init_i,
 
-                k_i => k_i,
+                wr_addr_i => wr_addr_i,
+                wr_data_i => wr_data_i,
+                wr_en_i => wr_en_i,
                 x_i => x_i,
 
                 start_i => start_i,
