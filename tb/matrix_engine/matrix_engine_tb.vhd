@@ -47,15 +47,15 @@ architecture rtl of mac_engine_td is
     signal u_o : mac_acc_vec(0 to M - 1);
 
     -- Test definition
-    procedure run_test (
+    procedure rev_engine (
         constant name : in string;
         constant k : mac_gain_mat;
         constant x : mac_data_vec;
 
         signal clk_i : in std_logic;
-        signal wr_addr_i : in unsigned(ceil_log2(M * N) - 1 downto 0);
-        signal wr_data_i : in signed(LANE_B_W - 1 downto 0);
-        signal wr_en_i : in std_logic;
+        signal wr_addr_i : out unsigned;
+        signal wr_data_i : out signed;
+        signal wr_en_i : out std_logic;
         signal x_i : out mac_data_vec;
         signal start_i : out std_logic;
         signal done_o : in std_logic;
@@ -162,7 +162,7 @@ begin
     wait until rising_edge(clk_i);
 
     -- Run all tests
-    run_test(
+    rev_engine(
         "identity",
         (
             (kv(1), kv(0), kv(0)),
@@ -175,7 +175,7 @@ begin
         clk_i, wr_addr_i, wr_data_i, wr_en_i,
         x_i, start_i, done_o, u_o, fail
     );
-    run_test(
+    rev_engine(
         "lower-tri",
         (
             (kv(1), kv(0), kv(0)),
@@ -188,7 +188,7 @@ begin
         clk_i, wr_addr_i, wr_data_i, wr_en_i,
         x_i, start_i, done_o, u_o, fail
     );
-    run_test(
+    rev_engine(
         "negatives",
         (
             (kv(-1), kv(0), kv(0)),
@@ -201,7 +201,7 @@ begin
         clk_i, wr_addr_i, wr_data_i, wr_en_i,
         x_i, start_i, done_o, u_o, fail
     );
-    run_test(
+    rev_engine(
         "extreme",
         (
             (kv(16777215), kv(0), kv(0)),
@@ -214,7 +214,7 @@ begin
         clk_i, wr_addr_i, wr_data_i, wr_en_i,
         x_i, start_i, done_o, u_o, fail
     );
-    run_test(
+    rev_engine(
         "wide",
         (
             (kv(1000000), kv(0), kv(0)),
@@ -250,7 +250,7 @@ begin
     wait until rising_edge(clk_i);
 
     -- A normal run after the abort must produce the right answer.
-    run_test(
+    rev_engine(
         "post-interrupt",
         (
             (kv(1), kv(0), kv(-10)),
