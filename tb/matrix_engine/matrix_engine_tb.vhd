@@ -11,7 +11,7 @@ use ieee.numeric_std.all;
 
 use work.panda_consts.all;
 -- use work.fp_utils.all;
--- use work.num_utils.all;
+use work.num_utils.all;
 use work.matrix_consts.all;
 use work.mac_utils.all;
 
@@ -32,9 +32,11 @@ architecture rtl of mac_engine_td is
     -- Engine ports
     signal clk_i : std_logic := '0';
     signal init_i : std_logic := '0';
-    signal k_i : mac_gain_mat(0 to M - 1, 0 to N - 1) :=
-        -- 2D array => two levels + bits
-        (others => (others => (others => '0')));
+    
+    signal wr_addr_i : unsigned(ceil_log2(M * N) - 1 downto 0) := (others => '0');
+    signal wr_data_i : signed(LANE_B_W - 1 downto 0) := (others => '0');
+    signal wr_en_i : std_logic := '0';
+
     signal x_i : mac_data_vec(0 to N - 1) :=
         -- 1D array => one level + bits
         (others => (others => '0'));
@@ -51,7 +53,9 @@ architecture rtl of mac_engine_td is
         constant x : mac_data_vec;
 
         signal clk_i : in std_logic;
-        signal k_i : out mac_gain_mat;
+        signal wr_addr_i : in unsigned(ceil_log2(M * N) - 1 downto 0);
+        signal wr_data_i : in signed(LANE_B_W - 1 downto 0);
+        signal wr_en_i : in std_logic;
         signal x_i : out mac_data_vec;
         signal start_i : out std_logic;
         signal done_o : in std_logic;
@@ -68,9 +72,18 @@ architecture rtl of mac_engine_td is
             end loop;
         end loop;
 
-        -- Load K and x
-        k_i <= k;
+        -- Load the gains from BRAM and stream the state
         x_i <= x;
+        for r in 0 to M - 1 loop
+            for c in 0 to N - 1 loop
+                wr_addr_i <= to_unsigned(r * N + c, wr_addr_i'length);
+                wr_data_i <= k(r, c);
+                wr_en_i <= '1';
+                wait until rising_edge(clk_i);
+            end loop;
+        end loop;
+
+        wr_en_i <= '0';
         wait until rising_edge(clk_i);
 
         -- Begin engine
@@ -127,9 +140,10 @@ begin
     port map (
         clk_i => clk_i,
         init_i => init_i,
-        k_i => k_i,
+        wr_addr_i => wr_addr_i,
+        wr_data_i => wr_data_i,
+        wr_en_i => wr_en_i,
         x_i => x_i,
-
         start_i => start_i,
 
         done_o => done_o,
@@ -158,7 +172,8 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o, fail
+        clk_i, wr_addr_i, wr_data_i, wr_en_i,
+        x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "lower-tri",
@@ -170,7 +185,8 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o, fail
+        clk_i, wr_addr_i, wr_data_i, wr_en_i,
+        x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "negatives",
@@ -182,7 +198,8 @@ begin
         (
             (xv(2), xv(3), xv(4))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o, fail
+        clk_i, wr_addr_i, wr_data_i, wr_en_i,
+        x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "extreme",
@@ -194,7 +211,8 @@ begin
         (
             (xv(131071), xv(-131070), xv(-131070))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o, fail
+        clk_i, wr_addr_i, wr_data_i, wr_en_i,
+        x_i, start_i, done_o, u_o, fail
     );
     run_test(
         "wide",
@@ -206,15 +224,14 @@ begin
         (
             (xv(50000000), xv(-40000000), xv(30000000))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o, fail
+        clk_i, wr_addr_i, wr_data_i, wr_en_i,
+        x_i, start_i, done_o, u_o, fail
     );
 
     -- Test interrupt/restart recovery
-    k_i <= (
-        (kv(1), kv(1), kv(1)),
-        (kv(1), kv(1), kv(1)),
-        (kv(1), kv(1), kv(1))
-    );
+
+    -- We deliberately abort this so we can be lazy
+    -- and never manually load the gains in BRAM.
     x_i <= (xv(5), xv(5), xv(5));
     wait until rising_edge(clk_i);
 
@@ -243,7 +260,8 @@ begin
         (
             (xv(20), xv(3), xv(54))
         ),
-        clk_i, k_i, x_i, start_i, done_o, u_o, fail
+        clk_i, wr_addr_i, wr_data_i, wr_en_i,
+        x_i, start_i, done_o, u_o, fail
     );
 
     -- Report the overall result
