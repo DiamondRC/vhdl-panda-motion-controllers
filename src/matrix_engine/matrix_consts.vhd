@@ -12,8 +12,8 @@ use work.panda_consts.all;
 
 package matrix_consts is
     -- Constants
-    constant LANE_A_W : natural := 42;
-    constant LANE_B_W : natural := 32;
+    constant LANE_A_W : natural := 42; -- Input
+    constant LANE_B_W : natural := 32; -- Gains
     constant ACCUM_GUARD : natural := 8;
     constant LANE_ACC_W : natural := LANE_A_W + LANE_B_W + ACCUM_GUARD;
 

@@ -16,7 +16,7 @@ use ieee.numeric_std.all;
 
 use work.panda_consts.all;
 -- use work.fp_utils.all;
--- use work.num_utils.all;
+use work.num_utils.all;
 use work.matrix_consts.all;
 use work.mac_utils.all;
 
@@ -30,7 +30,12 @@ entity mac_engine is
         clk_i  : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA reset
 
-        k_i : in mac_gain_mat(0 to M - 1, 0 to N - 1); -- (row, col)
+        -- BRAM Gains
+        wr_addr_i : in unsigned(ceil_log2(M * N) - 1 downto 0);
+        wr_data_i : in signed(LANE_B_W - 1 downto 0);
+        wr_en_i : in std_logic;
+
+        -- Incoming State
         x_i : in mac_data_vec(0 to N - 1);
 
         start_i : in std_logic;
@@ -45,9 +50,14 @@ architecture main of mac_engine is
     -- FSM
     signal state : engine_state := IDLE;
 
+    -- BRAM
+    constant DEPTH : natural := M * N;
+    constant DATA_W : natural := LANE_B_W;
+    signal gain_addr : unsigned(ceil_log2(DEPTH) - 1 downto 0);
+
     -- Lane wiring
-    signal lane_a    : signed(LANE_A_W - 1 downto 0);
-    signal lane_b    : signed(LANE_B_W  - 1 downto 0);
+    signal lane_a    : signed(LANE_A_W - 1 downto 0); -- State
+    signal lane_b    : signed(LANE_B_W  - 1 downto 0); -- Gains
     signal lane_load : std_logic;
     signal lane_en   : std_logic;
     signal lane_acc  : signed(LANE_ACC_W  - 1 downto 0);
@@ -55,31 +65,48 @@ architecture main of mac_engine is
     -- Vector ranges
     signal row : natural range 0 to M - 1 := 0;
     signal col : natural range 0 to N - 1 := 0;
-    signal drain_cnt : natural range 0 to 2 := 0;
+    signal drain_cnt : natural range 0 to 4 := 0;
+
+    -- Pipeline registers
+    signal xa_p1 : signed(LANE_A_W - 1 downto 0);
+    signal en_p1 : std_logic;
+    signal ld_p1 : std_logic;
 
 begin
     -- MAC lane
     u_lane : entity work.mac_lane
-    generic map (
-        A_W => LANE_A_W,
-        B_W => LANE_B_W,
-        ACC_W => LANE_ACC_W
-    )
-    port map ( 
-        clk_i => clk_i,
-        init_i => init_i,
-        a_i => lane_a,
-        b_i => lane_b,
-        load_i => lane_load,
-        en_i => lane_en,
-        acc_o => lane_acc
-    );
+        generic map (
+            A_W => LANE_A_W,
+            B_W => LANE_B_W,
+            ACC_W => LANE_ACC_W
+        )
+        port map ( 
+            clk_i => clk_i,
+            init_i => init_i,
+            a_i => lane_a,
+            b_i => lane_b,
+            load_i => lane_load,
+            en_i => lane_en,
+            acc_o => lane_acc
+        );
 
-    -- Drive inputs with combinational mux
-    lane_a    <= x_i(col); -- input
-    lane_b    <= k_i(row, col); -- gain matrix
-    lane_en   <= '1' when state = FEED else '0';
-    lane_load <= '1' when (state = FEED and col = 0) else '0';
+    -- BRAM gain storage
+    u_store : entity work.bram_store
+        generic map (
+            DEPTH => DEPTH,
+            DATA_W => DATA_W
+        )
+        port map (
+            clk_i => clk_i,
+            wr_addr_i => wr_addr_i,
+            wr_data_i => wr_data_i,
+            wr_en_i => wr_en_i,
+            rd_addr_i => gain_addr,
+            rd_data_o => lane_b
+        );
+
+    -- Every cycle update the BRAM address to fetch next gain.
+    gain_addr <= to_unsigned(row * N + col, gain_addr'length);
 
     process(clk_i)
     begin
@@ -94,9 +121,54 @@ begin
                 col <= 0;
                 drain_cnt <= 0;
 
+                -- BRAM pipelining
+                en_p1 <= '0';
+                ld_p1 <= '0';
+                lane_en <= '0';
+                lane_load <= '0';
+
                 -- Other
                 u_o <= (others => (others => '0'));
             else
+                -- ------------------------
+                -- BRAM reads (every cycle)
+                -- ------------------------
+
+                -- Stage 1 - capture
+                --
+                -- Gains arrive from BRAM 2 cycles late,
+                -- however x, load and en are available immediately.
+                if state = FEED then
+                    -- Buffer state,
+                    -- enable processing.
+                    xa_p1 <= x_i(col);
+                    en_p1 <= '1';
+
+                    -- Handle accumulation.
+                    -- If first term in a new row...
+                    if col = 0 then
+                        -- ...overwrite accumuator,
+                        -- new sum. Or...
+                        ld_p1 <= '1';
+                    else
+                        -- ...continue accumulating.
+                        ld_p1 <= '0';
+                    end if;
+                else
+                    -- Do not pass state,
+                    -- do not load/enable.
+                    en_p1 <= '0';
+                    ld_p1 <= '0';
+                end if;
+
+                -- Stage 2 - pipeline for a cycle
+                lane_a <= xa_p1; -- send state
+                lane_en <= en_p1;
+                lane_load <= ld_p1;
+
+                -- ------------------------
+                -- FSM lane
+                -- ------------------------
                 case state is
                     -- Waiting for a start signal
                     when IDLE =>
@@ -119,8 +191,9 @@ begin
 
                     -- Wait for lane calculations
                     when DRAIN =>
-                        -- Await the 2 cycle lane latency
-                        if drain_cnt = 1 then
+                        -- Await the 4 cycle lane latency
+                        -- Last term 2 cycles to read + 2 to process
+                        if drain_cnt = 3 then
                             state <= CAPTURE;
                             drain_cnt <= 0;
                         else
