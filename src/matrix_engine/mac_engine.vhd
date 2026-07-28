@@ -22,9 +22,9 @@ use work.mac_utils.all;
 
 entity mac_engine is
     generic (
-        G_LANES : natural := 1;
-        M : natural := 3;
-        N : natural := 3
+        G_LANES : positive := 1;
+        M : positive := 3;
+        N : positive := 3
     );
     port (
         clk_i  : in std_logic; -- PandA master clock
