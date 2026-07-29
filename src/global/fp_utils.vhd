@@ -37,7 +37,7 @@ package fp_utils is
         OUT_LEN  : natural
     ) return signed;
 
-    function requantize(
+    function requantise(
         s_in : signed;
         FRAC_DIFF : natural;
         OUT_LEN : natural;
@@ -170,7 +170,7 @@ package body fp_utils is
     -- Intended to clamp down values, but technically does work fine if you
     -- don't try to narrow.
     ----------------------------------------------------------------------------
-    function requantize(
+    function requantise(
         s_in : signed;
         FRAC_DIFF : natural;
         OUT_LEN : natural;
