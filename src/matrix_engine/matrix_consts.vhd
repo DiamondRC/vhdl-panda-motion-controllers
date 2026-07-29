@@ -12,10 +12,10 @@ use work.panda_consts.all;
 
 package matrix_consts is
     -- Constants
-    constant LANE_A_W : natural := 42; -- Input
-    constant LANE_B_W : natural := 32; -- Gains
-    constant ACCUM_GUARD : natural := 8;
-    constant LANE_ACC_W : natural := LANE_A_W + LANE_B_W + ACCUM_GUARD;
+    constant LANE_A_W : positive := 42; -- Input
+    constant LANE_B_W : positive := 32; -- Gains
+    constant ACCUM_GUARD : positive := 8;
+    constant LANE_ACC_W : positive := LANE_A_W + LANE_B_W + ACCUM_GUARD;
 
     -- Arrays
     type mac_data_vec is array (natural range <>)

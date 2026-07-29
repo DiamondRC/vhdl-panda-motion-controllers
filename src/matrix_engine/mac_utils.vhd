@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- mac_utils : FSM and test helpers
+-- mac_utils : FSM and stream versioning utils.
 --------------------------------------------------------------------------------
 
 library ieee;
@@ -10,6 +10,10 @@ use work.panda_consts.all;
 
 package mac_utils is
 
+    -- Constants
+    constant GEN_W : positive := 16; -- Stream version tag (A->B->A)
+
+    -- FSM
     type engine_state is (
         IDLE,
         FEED,
