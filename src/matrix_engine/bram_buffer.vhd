@@ -34,8 +34,8 @@ use work.mac_utils.all;
 entity bram_buffer is
     generic (
         NUM_BUFFERS : positive := 2; -- BRAM instances
-        DEPTH : positive; -- Size of BRAM
-        DATA_W : positive -- ^
+        DEPTH : positive := 9; -- Size of BRAM
+        DATA_W : positive := 32 -- ^
     );
     port (
         clk_i  : in std_logic; -- PandA master clock
