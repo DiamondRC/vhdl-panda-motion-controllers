@@ -6,8 +6,14 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.num_utils.all;
+
 package fp_utils is
 
+    -- Enums
+    type round_mode is (HALF_AWAY, HALF_EVEN);
+
+    -- Functions
     function round_half_away(
         s_in      : signed;
         FRAC_DIFF : natural;
@@ -24,6 +30,18 @@ package fp_utils is
         s_in     : signed;
         PAD_BITS : natural;
         OUT_LEN  : natural
+    ) return signed;
+
+    function saturate(
+        s_in     : signed;
+        OUT_LEN  : natural
+    ) return signed;
+
+    function requantize(
+        s_in : signed;
+        FRAC_DIFF : natural;
+        OUT_LEN : natural;
+        MODE : round_mode
     ) return signed;
 
 end package fp_utils;
@@ -126,6 +144,48 @@ package body fp_utils is
         else
             return resize(s_in, OUT_LEN);
         end if;
+    end function;
+
+    ----------------------------------------------------------------------------
+    -- Saturate by clamping a wide, rounded value to the output range.
+    ----------------------------------------------------------------------------
+    function saturate(
+        s_in     : signed;
+        OUT_LEN  : natural
+    ) return signed is
+    begin
+        if s_in > max_s(OUT_LEN) then
+            return max_s(OUT_LEN);
+        elsif s_in < min_s(OUT_LEN) then
+            return min_s(OUT_LEN);
+        else
+            return resize(s_in, OUT_LEN);
+        end if;
+    end function;
+
+    ----------------------------------------------------------------------------
+    -- Round to an intermediate of some guard width.
+    -- 
+    -- Prevents rounded values from overflowing before we clamp values.
+    -- Intended to clamp down values, but technically does work fine if you
+    -- don't try to narrow.
+    ----------------------------------------------------------------------------
+    function requantize(
+        s_in : signed;
+        FRAC_DIFF : natural;
+        OUT_LEN : natural;
+        MODE : round_mode
+    ) return signed is
+        -- wide intermediate, +1 for rounding carry
+        constant FULL_LEN : natural := s_in'length - FRAC_DIFF + 1;
+        variable rounded : signed(FULL_LEN - 1 downto 0);
+    begin
+        case MODE is
+            when HALF_AWAY => rounded := round_half_away(s_in, FRAC_DIFF, FULL_LEN);
+            when HALF_EVEN => rounded := round_half_even(s_in, FRAC_DIFF, FULL_LEN);
+        end case;
+
+        return saturate(rounded, OUT_LEN);
     end function;
 
 end package body fp_utils;
