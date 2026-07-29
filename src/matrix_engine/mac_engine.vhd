@@ -35,6 +35,10 @@ entity mac_engine is
         wr_data_i : in signed(LANE_B_W - 1 downto 0);
         wr_en_i : in std_logic;
 
+        -- BRAM Buffer
+        commit_i : in std_logic;
+        gen_o : out unsigned(GEN_W - 1 downto 0);
+
         -- Incoming State
         x_i : in mac_data_vec(0 to N - 1);
 
@@ -53,6 +57,7 @@ architecture main of mac_engine is
     -- BRAM
     constant DEPTH : natural := M * N;
     constant DATA_W : natural := LANE_B_W;
+    constant NUM_BUFFERS : natural := 2;
     signal gain_addr : unsigned(ceil_log2(DEPTH) - 1 downto 0);
 
     -- Lane wiring
@@ -71,6 +76,7 @@ architecture main of mac_engine is
     signal xa_p1 : signed(LANE_A_W - 1 downto 0);
     signal en_p1 : std_logic;
     signal ld_p1 : std_logic;
+    signal pass_start : std_logic;
 
 begin
     -- MAC lane
@@ -91,18 +97,23 @@ begin
         );
 
     -- BRAM gain storage
-    u_store : entity work.bram_store
+    u_store : entity work.bram_buffer
         generic map (
+            NUM_BUFFERS => NUM_BUFFERS,
             DEPTH => DEPTH,
             DATA_W => DATA_W
         )
         port map (
             clk_i => clk_i,
+            init_i => init_i,
             wr_addr_i => wr_addr_i,
             wr_data_i => wr_data_i,
             wr_en_i => wr_en_i,
             rd_addr_i => gain_addr,
-            rd_data_o => lane_b
+            rd_data_o => lane_b,
+            commit_i => commit_i,
+            pass_start_i => pass_start,
+            gen_o => gen_o
         );
 
     -- Every cycle update the BRAM address to fetch next gain.
@@ -126,6 +137,7 @@ begin
                 ld_p1 <= '0';
                 lane_en <= '0';
                 lane_load <= '0';
+                pass_start <= '0';
 
                 -- Other
                 u_o <= (others => (others => '0'));
@@ -161,6 +173,10 @@ begin
                     ld_p1 <= '0';
                 end if;
 
+                -- Do not stream new data whislt we're
+                -- working!
+                pass_start <= '0';
+
                 -- Stage 2 - pipeline for a cycle
                 lane_a <= xa_p1; -- send state
                 lane_en <= en_p1;
@@ -177,6 +193,9 @@ begin
                         if start_i = '1' then
                             row <= 0;
                             state <= FEED;
+                            -- Begin pass at start of
+                            -- new state processing.
+                            pass_start <= '1';
                         end if;
 
                     -- Feed lane(s) with all column items

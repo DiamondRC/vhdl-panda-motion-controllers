@@ -18,7 +18,7 @@ use ieee.numeric_std.all;
 -- use work.fp_utils.all;
 use work.num_utils.all;
 use work.matrix_consts.all;
--- use work.mac_utils.all;
+use work.mac_utils.all;
 
 entity mac_array is
     generic (
@@ -38,6 +38,9 @@ entity mac_array is
         wr_addr_i : in unsigned(ceil_log2(M * N) - 1 downto 0);
         wr_data_i : in signed(LANE_B_W - 1 downto 0);
         wr_en_i : in std_logic;
+
+        commit_i : in std_logic;
+        gen_o : out unsigned(GEN_W - 1 downto 0);
 
         x_i : in mac_data_vec(0 to N - 1);
 
@@ -68,6 +71,8 @@ begin
                 wr_addr_i => wr_addr_i,
                 wr_data_i => wr_data_i,
                 wr_en_i => wr_en_i,
+                commit_i => commit_i,
+                gen_o => gen_o,
                 x_i => x_i,
 
                 start_i => start_i,
