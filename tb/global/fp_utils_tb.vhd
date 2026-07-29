@@ -29,7 +29,7 @@ architecture rtl of fp_utils_td is
 
     function as_real(code : signed; frac : natural) return real is
         -- Render a raw code at Q(.frac) as a real
-        -- (Makes visualisation/life easier.
+        -- (Makes visualisation/life easier.)
     begin
         return to_real (
             to_sfixed (
