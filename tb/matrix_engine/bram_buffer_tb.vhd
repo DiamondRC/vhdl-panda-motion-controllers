@@ -243,11 +243,64 @@ begin
     -- ------------------------------------------------------------
     -- Ping-pong over several swaps
     -- ------------------------------------------------------------
+    for i in 0 to 3 loop
+        -- Each fill+commit+pass swaps onto the freshly filled buffer,
+        -- alternating banks.
+        fill(
+            300 + i * 100,
+            clk_i, wr_addr_i, wr_data_i, wr_en_i
+        );
+        commit_pulse(clk_i, commit_i);
+        pass_pulse(clk_i, pass_start_i);
+        rd_check(
+            "t2 ping-pong",
+            300 + i * 100,
+            clk_i, rd_addr_i, rd_data_o, fail
+        );
+        gen_check(
+            "t2 gen",
+            3 + i,
+            clk_i, gen_o, fail
+        );
+    end loop;
 
     -- ------------------------------------------------------------
-    -- Spatial isolation - writes to the inactive
-    --         buffer never disturb reads of the active
+    -- Spatial isolation
     -- ------------------------------------------------------------
+
+    -- Writes to the inactive buffer should never disturb reads of 
+    -- the active (active holds 600 from last test).
+
+    -- Hammer the inactive buffer (no commit) and confirm the
+    -- active never budges and gen never moves (the banks are separate).
+    rd_check(
+        "t3 baseline",
+        600,
+        clk_i, rd_addr_i, rd_data_o, fail
+    );
+    fill(
+        700,
+        clk_i, wr_addr_i, wr_data_i, wr_en_i
+    );
+    rd_check(
+        "t3 after write",
+        600,
+        clk_i, rd_addr_i, rd_data_o, fail
+    );
+    fill(
+        800,
+        clk_i, wr_addr_i, wr_data_i, wr_en_i
+    );
+    rd_check(
+        "t3 still active",
+        600,
+        clk_i, rd_addr_i, rd_data_o, fail
+    );
+    gen_check(
+        "t3 no swap",
+        6,
+        clk_i, gen_o, fail
+    );
 
     -- Report the overall result
     wait until rising_edge(clk_i);
