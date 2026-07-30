@@ -430,6 +430,11 @@ begin
         wait until rising_edge(clk_i);
         start_i <= '0';
 
+        -- Let the deferred swap complete before filling the next bank.
+        -- Writing on the swap edge races write_buff and
+        -- mis-banks the first address.
+        wait until rising_edge(clk_i);
+
         -- stage K_HALF into the inactive bank mid-flight
         load(
             K_HALF,

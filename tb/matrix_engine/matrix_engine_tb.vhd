@@ -325,6 +325,10 @@ begin
     wait until rising_edge(clk_i);
     start_i <= '0';
 
+    -- Let the deferred swap land before filling the next bank -
+    -- writing on the swap edge races write_buff.
+    wait until rising_edge(clk_i);
+
     -- While the engine computes A, stage B into the inactive buffer.
     load(MP_B, clk_i, wr_addr_i, wr_data_i, wr_en_i, commit_i);
 
