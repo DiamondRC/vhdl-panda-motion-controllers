@@ -157,6 +157,8 @@ begin
             u_o => u_raw
         );
 
+    done_o <= done;
+
     -- The output stage
     gen_out : for r in 0 to M - 1 generate
         u_o(r) <= requantise(
