@@ -56,7 +56,7 @@ entity lqr is
         N : positive := 3; -- live state inputs
 
         -- Tune the control algorithm's shape
-        G_FEATURES : natural := 0; -- How many K_i * i blocks in control algorithm?
+        G_PHI : natural := 0; -- How many K_i * i blocks in control algorithm?
         G_UPREV : boolean := false; -- Feed in the controller's previous outputs?
         G_SETPOINT : boolean := false; -- Include the SP in the control?
         G_AFFINE : boolean := false -- Is affine (K * x + affine)?
@@ -71,7 +71,7 @@ entity lqr is
         -- Gain stream
         wr_addr_i : in  unsigned(
             ceil_log2(
-                M * n_int(N, M, G_FEATURES, G_UPREV, G_SETPOINT, G_AFFINE)
+                M * n_int(N, M, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE)
             ) - 1 downto 0
         );
         wr_data_i : in  signed(LANE_B_W - 1 downto 0);
@@ -93,11 +93,11 @@ end entity lqr;
 
 architecture main of lqr is
     -- Constants
-    constant N_INT : positive := n_int(N, M, G_FEATURES, G_UPREV, G_SETPOINT, G_AFFINE);
+    constant N_INT : positive := n_int(N, M, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE);
     constant FEAT_BASE : natural := N; -- [ state | features | u_prev | setpoint | affine ]
-    constant UPREV_BASE : natural := N + G_FEATURES;
+    constant UPREV_BASE : natural := N + G_PHI;
     -- Ports are always active => tie off SP rather than handling w/ generators
-    constant SP_BASE : natural := N + G_FEATURES + M * boolean'pos(G_UPREV);
+    constant SP_BASE : natural := N + G_PHI + M * boolean'pos(G_UPREV);
 
     -- Signals
     signal x_eng : mac_data_vec(0 to N_INT - 1); -- Assembled engine input
@@ -117,7 +117,7 @@ begin
     x_eng(0 to N - 1) <= x_i;
 
     -- The input features input block
-    gen_feat : for f in 0 to G_FEATURES - 1 generate
+    gen_feat : for f in 0 to G_PHI - 1 generate
         x_eng(FEAT_BASE + f) <= (others => '0');
     end generate;
 

@@ -482,7 +482,7 @@ begin
             G_LANES => 1,
             M => M,
             N => N,
-            G_FEATURES => 0,
+            G_PHI => 0,
             G_AFFINE => false
         )
         port map (
@@ -506,7 +506,7 @@ begin
             G_LANES => 1,
             M => M,
             N => N,
-            G_FEATURES => 0,
+            G_PHI => 0,
             G_AFFINE => true
         )
         port map (
@@ -530,7 +530,7 @@ begin
             G_LANES => 1,
             M => M,
             N => N,
-            G_FEATURES => 0,
+            G_PHI => 0,
             G_UPREV => true,
             G_AFFINE => false
         )
@@ -555,7 +555,7 @@ begin
             G_LANES => 1,
             M => M,
             N => N,
-            G_FEATURES => 0,
+            G_PHI => 0,
             G_SETPOINT => true,
             G_AFFINE => false
         )
