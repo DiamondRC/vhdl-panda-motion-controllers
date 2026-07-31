@@ -477,7 +477,7 @@ begin
         -- Report the overall result
         wait until rising_edge(clk_i);
         if fail = '0' then
-            report "LQR TESTS PASS - Controller passes its MOT" severity note;
+            report "LQR TESTS PASS" severity note;
         else
             report "LQR TESTS FAILED" severity failure;
         end if;

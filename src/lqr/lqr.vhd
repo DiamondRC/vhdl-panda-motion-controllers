@@ -12,6 +12,12 @@
 -- phi (Koopman / polynomial-LQR view). Features enter at the x_eng assembly
 -- seam and widen N.
 --
+-- A pratical way to build the actual controller is as follows:
+--  - Toggle the shape of the controller.
+--  - Configure a concatenated matrix and switch the input source
+--    for each block on (K = [K1 | K2]).
+--  - Fill the gains write K2 etc into that block's columns of K.
+--
 -- There's two easy ways to build phi later which reuse the engine:
 --   1. Multiplicative (x_i*x_j, x^2, x'Qx etc): the wide lane is a general A*B
 --      multiplier => can source both operands from state, not gain. 
@@ -49,9 +55,9 @@ entity lqr is
         M : positive := 3; -- outputs
         N : positive := 3; -- live state inputs
 
-        -- 
+        -- Toggle the controller's shape
         G_FEATURES : natural := 0; -- How many additional K_i * i in control
-        G_AFFINE : boolean := false -- If the controller is affine.
+        G_AFFINE : boolean := false -- If the controller is affine (K * x + affine)
     );
     port (
         clk_i  : in std_logic; -- PandA master clock
@@ -92,13 +98,17 @@ begin
     assert gain_fx'length = LANE_B_W
         report "gain_fx width /= LANE_B_W"  severity failure;
 
-    -- Input assembly stream
-    x_eng(0 to N - 1) <= x_i; -- TODO - error = x_i - setpoint slots here
+    -- Input assembly stream - each 'block' for the output
+    -- is created and combiend here. 
+    x_eng(0 to N - 1) <= x_i;
 
+    -- The input features input block
     gen_feat : for f in 0 to G_FEATURES - 1 generate
         x_eng(N + f) <= (others => '0'); -- TODO - phi
     end generate;
 
+    -- The affine input block (internal source)
+    -- If we have a K * x + b (matrix + affine)
     gen_affine : if G_AFFINE generate
         x_eng(N_INT - 1) <= ONE_FX; -- 1.0 => b*1 lands at PROD_F
     end generate;
