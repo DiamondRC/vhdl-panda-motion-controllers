@@ -28,9 +28,14 @@ architecture rtl of lqr_td is
     -- Topology
     constant M : natural := 3;
     constant N : natural := 3;
-    constant AW : natural := ceil_log2(M * n_int(N, 0, false)); -- plain addr width
-    constant AWA : natural := ceil_log2(M * n_int(N, 0, true));  -- affine addr width
-    constant NA : natural := n_int(N, 0, true);                 -- affine col count
+    constant AW : natural := ceil_log2(M * n_int(N, M, 0, false, false, false)); -- plain addr width
+    constant AWA : natural := ceil_log2(M * n_int(N, M, 0, false, false, true));  -- affine addr width
+    constant NA : natural := n_int(N, M, 0, false, false, true);                 -- affine col count
+
+    constant AF : natural := ceil_log2(M * n_int(N, M, 0, true, false, false));
+    constant NF : natural := n_int(N, M, 0, true, false, false);
+    constant AS : natural := ceil_log2(M * n_int(N, M, 0, false, true, false));
+    constant NS : natural := n_int(N, M, 0, false, true, false);
 
     -- Shared
     signal clk_i  : std_logic := '0';
@@ -45,6 +50,7 @@ architecture rtl of lqr_td is
     signal gen_o : unsigned(GEN_W - 1 downto 0);
 
     signal x_i : mac_data_vec(0 to N - 1) := (others => (others => '0'));
+    signal sp_i : mac_data_vec(0 to N - 1) := (others => (others => '0'));
     signal start_i: std_logic := '0';
 
     signal done_o : std_logic;
@@ -59,10 +65,41 @@ architecture rtl of lqr_td is
     signal gen_a : unsigned(GEN_W - 1 downto 0);
 
     signal x_i_a : mac_data_vec(0 to N - 1) := (others => (others => '0'));
+    signal sp_a : mac_data_vec(0 to N - 1) := (others => (others => '0'));
     signal start_a : std_logic := '0';
 
     signal done_a : std_logic;
     signal u_o_a : lqr_out_vec(0 to M - 1);
+
+    -- Feedback DUT
+    signal wr_addr_f : unsigned(AF - 1 downto 0) := (others => '0');
+    signal wr_data_f : signed(LANE_B_W - 1 downto 0) := (others => '0');
+    signal wr_en_f : std_logic := '0';
+
+    signal commit_f : std_logic := '0';
+    signal gen_f : unsigned(GEN_W - 1 downto 0);
+
+    signal x_i_f : mac_data_vec(0 to N - 1) := (others => (others => '0'));
+    signal sp_f : mac_data_vec(0 to N - 1) := (others => (others => '0'));
+    signal start_f : std_logic := '0';
+
+    signal done_f : std_logic;
+    signal u_o_f : lqr_out_vec(0 to M - 1);
+
+    -- Setpoint DUT
+    signal wr_addr_s : unsigned(AS - 1 downto 0) := (others => '0');
+    signal wr_data_s : signed(LANE_B_W - 1 downto 0) := (others => '0');
+    signal wr_en_s : std_logic := '0';
+
+    signal commit_s : std_logic := '0';
+    signal gen_s : unsigned(GEN_W - 1 downto 0);
+
+    signal x_i_s : mac_data_vec(0 to N - 1) := (others => (others => '0'));
+    signal sp_s : mac_data_vec(0 to N - 1) := (others => (others => '0'));
+    signal start_s : std_logic := '0';
+
+    signal done_s : std_logic;
+    signal u_o_s : lqr_out_vec(0 to M - 1);
 
 
     -- Test helpers
@@ -78,16 +115,15 @@ architecture rtl of lqr_td is
         return to_signed(integer(round(r * 2.0 ** STATE_F)), LANE_A_W);
     end function;
 
-    function round_sat(acc : signed) return lqr_out is
+    function round_sat(acc : signed; fd : natural; w : natural) return signed is
         -- Magnitude rounding method:
         -- Round-half-away then saturate.
         -- Independant (and more expensive) method
         -- compared to bias-shift => proves result.
-        constant FD : natural := PROD_F - OUT_F;
         variable mag : signed(acc'length + 1 downto 0);
         variable r : signed(acc'length + 1 downto 0);
     begin
-        if FD = 0 then
+        if fd = 0 then
             r := resize(acc, r'length);
         else
             mag := abs(resize(acc, mag'length)); -- |acc| +guard
@@ -95,21 +131,21 @@ architecture rtl of lqr_td is
                 to_signed(
                     1, mag'length
                     ),
-                    FD - 1
+                    fd - 1
                 ); -- + half
-            r := shift_right(mag, FD); -- floor(|acc|/2^FD + .5)
+            r := shift_right(mag, fd); -- floor(|acc|/2^FD + .5)
 
             if acc(acc'high) = '1' then
                 r := -r; -- restore sign
             end if;
         end if;
 
-        if r > max_s(OUT_W) then
-            return max_s(OUT_W);
-        elsif r < min_s(OUT_W) then
-            return min_s(OUT_W);
+        if r > max_s(w) then
+            return max_s(w);
+        elsif r < min_s(w) then
+            return min_s(w);
         else
-            return resize(r, OUT_W);
+            return resize(r, w);
         end if;
 
     end function;
@@ -184,7 +220,7 @@ architecture rtl of lqr_td is
             for c in x_eng'range loop
                 acc(r) := acc(r) + resize(k(r, c) * x_eng(c), acc(r)'length);
             end loop;
-            exp(r) := round_sat(acc(r));
+            exp(r) := round_sat(acc(r), PROD_F - OUT_F, OUT_W);
         end loop;
 
         -- Load gains, drive state, kick off the pass.
@@ -212,6 +248,138 @@ architecture rtl of lqr_td is
         end loop;
 
         wait until done_o = '0';
+    end procedure;
+
+    procedure run_sp (
+        -- Load a SP-included LQR where:
+        -- [state | setpoint], K_SP = [I | -I]
+        constant name : in string;
+        constant k    : mac_gain_mat;
+        constant x    : mac_data_vec;
+        constant sp   : mac_data_vec;
+
+        signal clk_i     : in  std_logic;
+        signal wr_addr_i : out unsigned;
+        signal wr_data_i : out signed;
+        signal wr_en_i   : out std_logic;
+        signal commit_i  : out std_logic;
+        signal x_i       : out mac_data_vec;
+        signal sp_i      : out mac_data_vec;
+        signal start_i   : out std_logic;
+        signal done_o    : in  std_logic;
+        signal u_o       : in  lqr_out_vec;
+        signal fail_o    : out std_logic
+    ) is
+        variable x_eng : mac_data_vec(0 to k'high(2));
+        variable acc   : mac_acc_vec(0 to k'high(1));
+        variable exp   : lqr_out_vec(0 to k'high(1));
+    begin
+        x_eng := (others => (others => '0'));
+
+        for c in x'range loop
+            x_eng(c) := x(c);
+        end loop;
+
+        for c in sp'range loop
+            x_eng(x'length + c) := sp(c);
+        end loop;
+
+        for r in acc'range loop
+            acc(r) := (others => '0');
+            for c in x_eng'range loop
+                acc(r) := acc(r) + resize(k(r, c) * x_eng(c), acc(r)'length);
+            end loop;
+            exp(r) := round_sat(acc(r), PROD_F - OUT_F, OUT_W);
+        end loop;
+
+        load(k, clk_i, wr_addr_i, wr_data_i, wr_en_i, commit_i);
+
+        x_i <= x;
+        sp_i <= sp;
+        start_i <= '1';
+        wait until rising_edge(clk_i);
+        start_i <= '0';
+
+        wait until done_o = '1';
+
+        for r in exp'range loop
+            if u_o(r) /= exp(r) then
+                fail_o <= '1';
+                report name &
+                    ": u(" & integer'image(r) &
+                    ") got " & integer'image(to_integer(u_o(r))) &
+                    ", expected " & integer'image(to_integer(exp(r)))
+                severity error;
+            else
+                report name & " passes" severity note;
+            end if;
+        end loop;
+
+        wait until done_o = '0';
+    end procedure;
+
+    procedure pass_fb (
+        -- Check that folding back in the
+        -- stage output is correct.
+        constant name   : in string;
+        constant k      : mac_gain_mat;
+        constant x      : mac_data_vec;
+        variable u_prev : inout mac_data_vec;
+
+        signal clk_i   : in  std_logic;
+        signal x_i     : out mac_data_vec;
+        signal start_i : out std_logic;
+        signal done_o  : in  std_logic;
+        signal u_o     : in  lqr_out_vec;
+        signal fail_o  : out std_logic
+    ) is
+        variable x_eng : mac_data_vec(0 to k'high(2));
+        variable acc   : mac_acc_vec(0 to k'high(1));
+        variable exp   : lqr_out_vec(0 to k'high(1));
+        variable u_nxt : mac_data_vec(0 to k'high(1));
+    begin
+        x_eng := (others => (others => '0'));
+
+        for c in x'range loop
+            x_eng(c) := x(c);
+        end loop;
+
+        for r in u_prev'range loop
+            x_eng(x'length + r) := u_prev(r);
+        end loop;
+
+        for r in acc'range loop
+            acc(r) := (others => '0');
+            for c in x_eng'range loop
+                acc(r) := acc(r) + resize(k(r, c) * x_eng(c), acc(r)'length);
+            end loop;
+            exp(r)   := round_sat(acc(r), PROD_F - OUT_F, OUT_W);
+            u_nxt(r) := round_sat(acc(r), PROD_F - STATE_F, LANE_A_W);
+        end loop;
+
+        x_i <= x;
+        start_i <= '1';
+        wait until rising_edge(clk_i);
+        start_i <= '0';
+
+        wait until done_o = '1';
+
+        for r in exp'range loop
+            if u_o(r) /= exp(r) then
+                fail_o <= '1';
+                report name &
+                    ": u(" & integer'image(r) &
+                    ") got " & integer'image(to_integer(u_o(r))) &
+                    ", expected " & integer'image(to_integer(exp(r)))
+                severity error;
+            else
+                report name & " passes" severity note;
+            end if;
+        end loop;
+
+        wait until done_o = '0';
+
+        u_prev := u_nxt;
     end procedure;
 
     procedure anchor (
@@ -265,20 +433,37 @@ architecture rtl of lqr_td is
         (kg(0.0), kg(1.0), kg(0.0), kg(-3.0)),
         (kg(0.0), kg(0.0), kg(1.0), kg( 0.0)) );
 
-    constant X_234 : mac_data_vec(0 to N - 1) := 
+    constant K_FB : mac_gain_mat(0 to M - 1, 0 to NF - 1) := (
+        (kg(1.0), kg(0.0), kg(0.0), kg(0.5), kg(0.0), kg(0.0)),
+        (kg(0.0), kg(1.0), kg(0.0), kg(0.0), kg(0.5), kg(0.0)),
+        (kg(0.0), kg(0.0), kg(1.0), kg(0.0), kg(0.0), kg(0.5)) );
+
+    constant K_SP : mac_gain_mat(0 to M - 1, 0 to NS - 1) := (
+        (kg(1.0), kg(0.0), kg(0.0), kg(-1.0), kg( 0.0), kg( 0.0)),
+        (kg(0.0), kg(1.0), kg(0.0), kg( 0.0), kg(-1.0), kg( 0.0)),
+        (kg(0.0), kg(0.0), kg(1.0), kg( 0.0), kg( 0.0), kg(-1.0)) );
+
+    constant X_234 : mac_data_vec(0 to N - 1) :=
         (xg( 2.0), xg( 3.0), xg( 4.0));
-    constant X_ONE : mac_data_vec(0 to N - 1) := 
+    constant X_ONE : mac_data_vec(0 to N - 1) :=
         (xg( 1.0), xg( 1.0), xg( 1.0));
-    constant X_NEG : mac_data_vec(0 to N - 1) := 
+    constant X_NEG : mac_data_vec(0 to N - 1) :=
         (xg(-1.0), xg(-1.0), xg(-1.0));
-    constant X_SAT : mac_data_vec(0 to N - 1) := 
+    constant X_SAT : mac_data_vec(0 to N - 1) :=
         (xg(32.0), xg(32.0), xg(32.0));
-    constant X_NST : mac_data_vec(0 to N - 1) := 
+    constant X_NST : mac_data_vec(0 to N - 1) :=
         (xg(-33.0), xg(-33.0), xg(-33.0));
-    constant X_MIX : mac_data_vec(0 to N - 1) := 
+    constant X_MIX : mac_data_vec(0 to N - 1) :=
         (xg( 3.0), xg( 4.0), xg(-2.0));
-    constant X_ANC : mac_data_vec(0 to N - 1) := 
+    constant X_ANC : mac_data_vec(0 to N - 1) :=
         (xg(10.0), xg(-20.0), xg(30.0));
+
+    constant X_FB : mac_data_vec(0 to N - 1) :=
+        (xg( 4.0), xg( 8.0), xg(12.0));
+    constant X_SP : mac_data_vec(0 to N - 1) :=
+        (xg(10.0), xg(20.0), xg(30.0));
+    constant SP_SP : mac_data_vec(0 to N - 1) :=
+        (xg( 4.0), xg( 8.0), xg(12.0));
 
 begin
 
@@ -303,6 +488,7 @@ begin
         port map (
             clk_i => clk_i,
             init_i => init_i,
+            sp_i => sp_i,
             wr_addr_i => wr_addr_i,
             wr_data_i => wr_data_i,
             wr_en_i => wr_en_i,
@@ -326,6 +512,7 @@ begin
         port map (
             clk_i => clk_i,
             init_i => init_i,
+            sp_i => sp_a,
             wr_addr_i => wr_addr_a,
             wr_data_i => wr_data_a,
             wr_en_i => wr_en_a,
@@ -337,7 +524,58 @@ begin
             u_o => u_o_a
         );
 
+    uut_f : entity work.lqr
+        generic map (
+            G_ENGINES => 1,
+            G_LANES => 1,
+            M => M,
+            N => N,
+            G_FEATURES => 0,
+            G_UPREV => true,
+            G_AFFINE => false
+        )
+        port map (
+            clk_i => clk_i,
+            init_i => init_i,
+            sp_i => sp_f,
+            wr_addr_i => wr_addr_f,
+            wr_data_i => wr_data_f,
+            wr_en_i => wr_en_f,
+            commit_i => commit_f,
+            gen_o => gen_f,
+            x_i => x_i_f,
+            start_i => start_f,
+            done_o => done_f,
+            u_o => u_o_f
+        );
+
+    uut_s : entity work.lqr
+        generic map (
+            G_ENGINES => 1,
+            G_LANES => 1,
+            M => M,
+            N => N,
+            G_FEATURES => 0,
+            G_SETPOINT => true,
+            G_AFFINE => false
+        )
+        port map (
+            clk_i => clk_i,
+            init_i => init_i,
+            sp_i => sp_s,
+            wr_addr_i => wr_addr_s,
+            wr_data_i => wr_data_s,
+            wr_en_i => wr_en_s,
+            commit_i => commit_s,
+            gen_o => gen_s,
+            x_i => x_i_s,
+            start_i => start_s,
+            done_o => done_s,
+            u_o => u_o_s
+        );
+
     process
+        variable u_prev_g : mac_data_vec(0 to M - 1);
     begin
         -- Reset both DUTs
         wait until rising_edge(clk_i);
@@ -361,7 +599,7 @@ begin
 
         -- rounding ties on the integer output (0.5 -> away)
         run(
-            "tie up", 
+            "tie up",
             K_HALF,
             X_ONE,
             false,
@@ -370,8 +608,8 @@ begin
         );
         run(
             "tie neg",
-            K_HALF, 
-            X_NEG, 
+            K_HALF,
+            X_NEG,
             false,
             clk_i, wr_addr_i, wr_data_i, wr_en_i, commit_i,
             x_i, start_i, done_o, u_o, fail
@@ -379,9 +617,9 @@ begin
 
         -- mixed matrix, accumulation signs
         run(
-            "mix", 
+            "mix",
             K_MIX,
-            X_MIX, 
+            X_MIX,
             false,
             clk_i, wr_addr_i, wr_data_i, wr_en_i, commit_i,
             x_i, start_i, done_o, u_o, fail
@@ -445,8 +683,8 @@ begin
         anchor(
             "mid-pass A",
             2,
-            3, 
-            4, 
+            3,
+            4,
             done_o, u_o, fail
         );
 
@@ -472,6 +710,34 @@ begin
             true,
             clk_i, wr_addr_a, wr_data_a, wr_en_a, commit_a,
             x_i_a, start_a, done_a, u_o_a, fail
+        );
+
+
+        -- Feedback test
+
+
+        load(
+            K_FB,
+            clk_i, wr_addr_f, wr_data_f, wr_en_f, commit_f
+        );
+        u_prev_g := (others => (others => '0'));
+        pass_fb("feedback 0", K_FB, X_FB, u_prev_g, clk_i, x_i_f, start_f, done_f, u_o_f, fail);
+        pass_fb("feedback 1", K_FB, X_FB, u_prev_g, clk_i, x_i_f, start_f, done_f, u_o_f, fail);
+        pass_fb("feedback 2", K_FB, X_FB, u_prev_g, clk_i, x_i_f, start_f, done_f, u_o_f, fail);
+        pass_fb("feedback 3", K_FB, X_FB, u_prev_g, clk_i, x_i_f, start_f, done_f, u_o_f, fail);
+        pass_fb("feedback 4", K_FB, X_FB, u_prev_g, clk_i, x_i_f, start_f, done_f, u_o_f, fail);
+
+
+        -- Add setpoint into control
+
+
+        run_sp(
+            "setpoint",
+            K_SP,
+            X_SP,
+            SP_SP,
+            clk_i, wr_addr_s, wr_data_s, wr_en_s, commit_s,
+            x_i_s, sp_s, start_s, done_s, u_o_s, fail
         );
 
         -- Report the overall result

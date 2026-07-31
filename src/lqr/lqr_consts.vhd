@@ -56,9 +56,12 @@ package lqr_consts is
 
     -- Helper functions
     function n_int(
-        N : natural;
-        feats : natural;
-        affine : boolean
+        N : natural; -- State block width
+        M : natural; -- Output width
+        feats : natural; -- Feature block
+        
+        -- include the controller output, SP and affine?
+        uprev, setpoint, affine: boolean
     ) return positive;
 
 end package lqr_consts;
@@ -68,15 +71,15 @@ package body lqr_consts is
 
     function n_int(
         N : natural;
+        M : natural;
         feats : natural;
-        affine : boolean
+        uprev, setpoint, affine: boolean
     ) return positive is
     begin
-        if affine = true then
-            return N + feats + 1;
-        else
-            return N + feats;
-        end if;
+        return N + feats + 
+            M * boolean'pos(uprev) + 
+            N * boolean'pos(setpoint) + 
+            boolean'pos(affine);
     end function;
 
 end package body;
