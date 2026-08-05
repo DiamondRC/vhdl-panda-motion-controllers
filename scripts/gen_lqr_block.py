@@ -14,12 +14,13 @@ This file is largely AI generated!
 """
 
 import argparse
+import os
 
 
 class Config:
     def __init__(self, axes=3, m=3, div=12500, hist_depth=2, scale=0.256, g_phi=0,
                  g_velocity=True, g_prev=False, g_uprev=True,
-                 g_setpoint=False, g_affine=False):
+                 g_setpoint=False, g_affine=False, dma=False):
         self.axes = axes
         self.m = m
         self.div = div
@@ -31,6 +32,7 @@ class Config:
         self.g_uprev = g_uprev
         self.g_setpoint = g_setpoint
         self.g_affine = g_affine
+        self.dma = dma  # tier 1 (DMA long table) vs tier 2 (table short)
 
 
 # --- mirror the VHDL sizing functions (cond_consts.vhd / lqr_consts.vhd) ---
@@ -64,10 +66,42 @@ def vbool(b):
     return "true" if b else "false"
 
 
+def ent(c):
+    # Distinct entity per tier so the two variants can coexist in one library
+    # and a TB always binds the block it means to (no port-mismatch surprises).
+    return "lqr_block_dma" if c.dma else "lqr_block"
+
+
+def config_slug(c):
+    # Fingerprint of the shape -> one output dir per config,
+    # so different shapes can never overwrite each other's block.
+    parts = ["a%d" % c.axes, "m%d" % c.m]
+    if c.g_phi:
+        parts.append("phi%d" % c.g_phi)
+    if c.g_velocity:
+        parts.append("vel")
+    if c.g_prev:
+        parts.append("prev")
+    if c.g_uprev:
+        parts.append("uprev")
+    if c.g_setpoint:
+        parts.append("sp")
+    if c.g_affine:
+        parts.append("aff")
+    if c.div != 12500:
+        parts.append("div%d" % c.div)
+    if abs(c.scale - 0.256) > 1e-9:
+        parts.append("s" + ("%g" % c.scale).replace(".", "p"))
+    return "_".join(parts)
+
+
 def make_block_ini(c):
     out = [BANNER_INI, "", "[.]",
            "description: LQR / nonlinear state-feedback motion controller.",
-           "entity: lqr_block", "",
+           "entity: %s" % ent(c)]
+    if c.dma:
+        out.append("type: dma")  # switches on the DMA-master wrapper section
+    out += ["",
            "[INIT]", "type: bit_mux",
            "description: Reset / re-initialise the controller."]
 
@@ -80,12 +114,19 @@ def make_block_ini(c):
             out += ["", "[SP%d]" % i, "type: pos_mux",
                     "description: Reference r(k) component %d (feedforward)." % i]
 
-    out += ["", "[GAINS]", "type: table short", "words: 1",
-            "lines: %d" % gain_count(c),
-            "description: Flattened K matrix (row-major, Q7.25), "
-            "streamed into the inactive gain bank.",
-            "31:0 K int", "    One Q7.25 gain word.",
-            "", "[COMMIT]", "type: param bit", "wstb: true",
+    if c.dma:                                                # tier 1: DMA long table
+        out += ["", "[GAINS]", "type: table",
+                "description: Flattened K matrix (row-major, Q7.25), "
+                "DMAed into the inactive gain bank.",
+                "31:0 K int", "    One Q7.25 gain word."]
+    else:                                                    # tier 2: register-burst
+        out += ["", "[GAINS]", "type: table short", "words: 1",
+                "lines: %d" % gain_count(c),
+                "description: Flattened K matrix (row-major, Q7.25), "
+                "streamed into the inactive gain bank.",
+                "31:0 K int", "    One Q7.25 gain word."]
+
+    out += ["", "[COMMIT]", "type: param bit", "wstb: true",
             "description: Swap the staged gains into the active bank ",
             "", "[GEN]", "type: read",
             "description: Gain generation counter -- read to confirm a swap has landed."]
@@ -103,7 +144,7 @@ def make_block_vhd(c):
     nsp = state_width(c) if c.g_setpoint else 0
 
     out = ["-" * 80,
-        "--  File:   lqr_block.vhd",
+        "--  File:   %s.vhd" % ent(c),
         "--  Desc:   PandABlocks framework adapter around lqr_top.",
         "--  Author: richard.cunningham@diamond.ac.uk",
         "-" * 80, "",
@@ -116,7 +157,7 @@ def make_block_vhd(c):
         "use work.num_utils.all;",
         "use work.lqr_consts.all;",
         "use work.cond_consts.all;", "", "",
-        "entity lqr_block is",
+        "entity %s is" % ent(c),
         "    port (",
         "        clk_i : in std_logic; -- PandA master clock",
         "        init_i : in std_logic; -- PandA Reset", ""]
@@ -126,14 +167,32 @@ def make_block_vhd(c):
     for i in range(nsp):
         out.append("        sp%d_i : in std_logic_vector(31 downto 0); -- [SP%d] pos_mux" % (i, i))
 
-    out += ["",
-        "        -- Table short: words stream to DATA, no address on the bus",
-        "        GAINS_START : in std_logic_vector(31 downto 0);",
-        "        GAINS_START_WSTB : in std_logic;",
-        "        GAINS_DATA : in std_logic_vector(31 downto 0);",
-        "        GAINS_DATA_WSTB : in std_logic;",
-        "        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- informational",
-        "        GAINS_LENGTH_WSTB : in std_logic;", "",
+    if c.dma:
+        out += ["",
+            "        -- Table (long): host writes ADDRESS + LENGTH, block masters the read",
+            "        GAINS_ADDRESS : in std_logic_vector(31 downto 0);",
+            "        GAINS_ADDRESS_WSTB : in std_logic;",
+            "        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- bytes",
+            "        GAINS_LENGTH_WSTB : in std_logic;", "",
+            "        -- DMA master bundle (wrapper binds to read engine)",
+            "        dma_req_o : out std_logic;",
+            "        dma_ack_i : in std_logic;",
+            "        dma_done_i : in std_logic;",
+            "        dma_addr_o : out std_logic_vector(31 downto 0);",
+            "        dma_len_o : out std_logic_vector(7 downto 0); -- words",
+            "        dma_data_i : in std_logic_vector(31 downto 0);",
+            "        dma_valid_i : in std_logic;", ""]
+    else:
+        out += ["",
+            "        -- Table short: words stream to DATA, no address on the bus",
+            "        GAINS_START : in std_logic_vector(31 downto 0);",
+            "        GAINS_START_WSTB : in std_logic;",
+            "        GAINS_DATA : in std_logic_vector(31 downto 0);",
+            "        GAINS_DATA_WSTB : in std_logic;",
+            "        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- informational",
+            "        GAINS_LENGTH_WSTB : in std_logic;", ""]
+
+    out += [
         "        -- Param bit + wstb: pulse swaps the staged bank (value unused)",
         "        COMMIT : in std_logic_vector(31 downto 0);",
         "        COMMIT_WSTB : in std_logic;", "",
@@ -146,7 +205,7 @@ def make_block_vhd(c):
         "        u_valid_o : out std_logic",
         "    );",
         "end entity;", "", "",
-        "architecture main of lqr_block is",
+        "architecture main of %s is" % ent(c),
         "    -- Frozen build config",
         "    constant AXES : positive := %d;" % c.axes,
         "    constant M : positive := %d;" % c.m,
@@ -175,7 +234,18 @@ def make_block_vhd(c):
         "    -- Gain-fill source seam",
         "    signal fill_start : std_logic;",
         "    signal fill_valid : std_logic;",
-        "    signal fill_data : std_logic_vector(31 downto 0);", "",
+        "    signal fill_data : std_logic_vector(31 downto 0);", ""]
+
+    if c.dma:
+        out += [
+        "    -- DMA request FSM",
+        "    type dma_state is (IDLE, REQ, STREAM, DONE);",
+        "    signal dma_fsm : dma_state;",
+        "    signal words : unsigned(31 downto 0); -- remaining dwords to fetch",
+        "    signal addr : unsigned(31 downto 0); -- byte address",
+        "    signal blen : unsigned(8 downto 0); -- this burst's length (words)", ""]
+
+    out += [
         "begin", "",
         "    -- State inputs: sign-extend pos bus (32b) -> lanes (42b)"]
 
@@ -194,16 +264,74 @@ def make_block_vhd(c):
         out.append("    u%d_o <= std_logic_vector(resize(u_vec(%d), 32));" % (k, k))
 
     out += ["", "    -- Generation tag: zero-extend (16b) -> readback reg (32b)",
-        "    GEN <= std_logic_vector(resize(gen_u, 32));", "",
-        "    -- Gain-fill source: register-burst stream/DMA stream",
+        "    GEN <= std_logic_vector(resize(gen_u, 32));", ""]
+
+    if c.dma:
+        out += [
+        "    -- Gain-fill source: DMA stream (words land while STREAM)",
+        "    dma_addr_o <= std_logic_vector(addr);",
+        "    blen <= to_unsigned(256, blen'length) when words >= 256",
+        "            else words(8 downto 0);",
+        "    dma_len_o <= std_logic_vector(blen(7 downto 0));",
+        "    fill_valid <= dma_valid_i when dma_fsm = STREAM else '0';",
+        "    fill_data <= dma_data_i;", "",
+        "    -- ",
+        "    process(clk_i) begin",
+        "        if rising_edge(clk_i) then",
+        "            -- One-cycle pointer-reset pulse",
+        "            fill_start <= '0';", "",
+        "            if init_i = '1' then",
+        "                dma_fsm <= IDLE;",
+        "                dma_req_o <= '0';",
+        "                words <= (others => '0');",
+        "                addr <= (others => '0');",
+        "            else",
+        "                case dma_fsm is",
+        "                    when IDLE =>",
+        "                        dma_req_o <= '0';", "",
+        "                        if GAINS_LENGTH_WSTB = '1' and unsigned(GAINS_LENGTH) >= 4 then",
+        "                            words <= shift_right(unsigned(GAINS_LENGTH), 2); -- bytes -> dwords",
+        "                            addr <= unsigned(GAINS_ADDRESS);",
+        "                            fill_start <= '1'; -- reset the BRAM pointer for the load",
+        "                            dma_fsm <= REQ;",
+        "                        end if;", "",
+        "                    when REQ =>",
+        "                        dma_req_o <= '1'; -- addr + len already stable", "",
+        "                        -- Fire the DMA stream!",
+        "                        if dma_ack_i = '1' then",
+        "                            dma_req_o <= '0';",
+        "                            dma_fsm <= STREAM;",
+        "                        end if;", "",
+        "                    when STREAM =>",
+        "                        -- Words flow to the seam, advance on burst done",
+        "                        if dma_done_i = '1' then",
+        "                            words <= words - blen;",
+        "                            addr <= addr + shift_left(resize(blen, addr'length), 2);", "",
+        "                            if words - blen = 0 then",
+        "                                dma_fsm <= DONE;",
+        "                            else",
+        "                                dma_fsm <= REQ; -- next burst, pointer keeps counting",
+        "                            end if;",
+        "                        end if;", "",
+        "                    when DONE =>",
+        "                        dma_fsm <= IDLE; -- ready for the next load", "",
+        "                end case;",
+        "            end if;",
+        "        end if;",
+        "    end process;", ""]
+    else:
+        out += [
+        "    -- Gain-fill source: register-burst stream",
         "    fill_start <= GAINS_START_WSTB;",
         "    fill_valid <= GAINS_DATA_WSTB;",
-        "    fill_data <= GAINS_DATA;", "",
+        "    fill_data <= GAINS_DATA;", ""]
+
+    out += [
         "    -- Gain fill FSM: word-stream -> addressed BRAM write.",
         "    -- start resets the pointer, each valid word writes then increments.",
         "    process(clk_i) begin",
         "        if rising_edge(clk_i) then",
-        "            wr_en <= '0'; -- strobe: default low, pulse per word",
+        "            wr_en <= '0'; -- strobe: default low, pulse per word", "",
         "            if init_i = '1' or fill_start = '1' then",
         "                cnt <= (others => '0');",
         "            elsif fill_valid = '1' then",
@@ -246,6 +374,12 @@ def make_block_vhd(c):
     return "\n".join(out)
 
 
+def target_dir(c):
+    # One dir per slug
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "src", "lqr", config_slug(c))
+
+
 def main():
     p = argparse.ArgumentParser(description="Generate the LQR PandA block for a given shape.")
     p.add_argument("--axes", type=int, default=3, help="number of state-axis inputs (POS*)")
@@ -257,12 +391,14 @@ def main():
     p.add_argument("--setpoint", action="store_true", help="enable the reference feedforward (K_ff)")
     p.add_argument("--prev", action="store_true", help="add the previous-state block (x(k-1))")
     p.add_argument("--affine", action="store_true", help="add the affine/bias column")
-    p.add_argument("--out-dir", default=None, help="write lqr.block.ini + lqr_block.vhd here")
+    p.add_argument("--dma", action="store_true", help="tier 1: DMA long table (else table short)")
+    p.add_argument("--stdout", action="store_true", help="print instead of writing the block files")
     args = p.parse_args()
 
     c = Config(axes=args.axes, m=args.m, div=args.div, scale=args.scale,
                g_velocity=not args.no_velocity, g_uprev=not args.no_uprev,
-               g_setpoint=args.setpoint, g_prev=args.prev, g_affine=args.affine)
+               g_setpoint=args.setpoint, g_prev=args.prev, g_affine=args.affine,
+               dma=args.dma)
 
     ini, vhd = make_block_ini(c), make_block_vhd(c)
     print("# %d axes, %d outputs, N=%d -> %d gains (table lines=%d, wr_addr=%d bits)%s"
@@ -270,17 +406,20 @@ def main():
              max(1, (gain_count(c) - 1).bit_length()),
              ", setpoint ON" if c.g_setpoint else ""))
 
-    if args.out_dir:
-        import os
-        os.makedirs(args.out_dir, exist_ok=True)
-        with open(os.path.join(args.out_dir, "lqr.block.ini"), "w") as f:
-            f.write(ini)
-        with open(os.path.join(args.out_dir, "lqr_block.vhd"), "w") as f:
-            f.write(vhd)
-        print("# wrote lqr.block.ini + lqr_block.vhd to %s" % args.out_dir)
+    ini_name = ("lqr_dma" if c.dma else "lqr") + ".block.ini"
+    vhd_name = ent(c) + ".vhd"
+
+    if args.stdout:
+        print("\n===== %s =====\n" % ini_name + ini)
+        print("\n===== %s =====\n" % vhd_name + vhd)
     else:
-        print("\n===== lqr.block.ini =====\n" + ini)
-        print("\n===== lqr_block.vhd =====\n" + vhd)
+        out_dir = target_dir(c)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, ini_name), "w") as f:
+            f.write(ini)
+        with open(os.path.join(out_dir, vhd_name), "w") as f:
+            f.write(vhd)
+        print("# wrote %s + %s to %s" % (ini_name, vhd_name, out_dir))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---  File:   lqr_block.vhd
+--  File:   lqr_block_dma.vhd
 --  Desc:   PandABlocks framework adapter around lqr_top.
 --  Author: richard.cunningham@diamond.ac.uk
 --------------------------------------------------------------------------------
@@ -18,7 +18,7 @@ use work.lqr_consts.all;
 use work.cond_consts.all;
 
 
-entity lqr_block is
+entity lqr_block_dma is
     port (
         clk_i : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA Reset
@@ -30,13 +30,20 @@ entity lqr_block is
         sp1_i : in std_logic_vector(31 downto 0); -- [SP1] pos_mux
         sp2_i : in std_logic_vector(31 downto 0); -- [SP2] pos_mux
 
-        -- Table short: words stream to DATA, no address on the bus
-        GAINS_START : in std_logic_vector(31 downto 0);
-        GAINS_START_WSTB : in std_logic;
-        GAINS_DATA : in std_logic_vector(31 downto 0);
-        GAINS_DATA_WSTB : in std_logic;
-        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- informational
+        -- Table (long): host writes ADDRESS + LENGTH, block masters the read
+        GAINS_ADDRESS : in std_logic_vector(31 downto 0);
+        GAINS_ADDRESS_WSTB : in std_logic;
+        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- bytes
         GAINS_LENGTH_WSTB : in std_logic;
+
+        -- DMA master bundle (wrapper binds to read engine)
+        dma_req_o : out std_logic;
+        dma_ack_i : in std_logic;
+        dma_done_i : in std_logic;
+        dma_addr_o : out std_logic_vector(31 downto 0);
+        dma_len_o : out std_logic_vector(7 downto 0); -- words
+        dma_data_i : in std_logic_vector(31 downto 0);
+        dma_valid_i : in std_logic;
 
         -- Param bit + wstb: pulse swaps the staged bank (value unused)
         COMMIT : in std_logic_vector(31 downto 0);
@@ -53,7 +60,7 @@ entity lqr_block is
 end entity;
 
 
-architecture main of lqr_block is
+architecture main of lqr_block_dma is
     -- Frozen build config
     constant AXES : positive := 3;
     constant M : positive := 3;
@@ -88,6 +95,13 @@ architecture main of lqr_block is
     signal fill_valid : std_logic;
     signal fill_data : std_logic_vector(31 downto 0);
 
+    -- DMA request FSM
+    type dma_state is (IDLE, REQ, STREAM, DONE);
+    signal dma_fsm : dma_state;
+    signal words : unsigned(31 downto 0); -- remaining dwords to fetch
+    signal addr : unsigned(31 downto 0); -- byte address
+    signal blen : unsigned(8 downto 0); -- this burst's length (words)
+
 begin
 
     -- State inputs: sign-extend pos bus (32b) -> lanes (42b)
@@ -108,16 +122,73 @@ begin
     -- Generation tag: zero-extend (16b) -> readback reg (32b)
     GEN <= std_logic_vector(resize(gen_u, 32));
 
-    -- Gain-fill source: register-burst stream/DMA stream
-    fill_start <= GAINS_START_WSTB;
-    fill_valid <= GAINS_DATA_WSTB;
-    fill_data <= GAINS_DATA;
+    -- Gain-fill source: DMA stream (words land while STREAM)
+    dma_addr_o <= std_logic_vector(addr);
+    blen <= to_unsigned(256, blen'length) when words >= 256
+            else words(8 downto 0);
+    dma_len_o <= std_logic_vector(blen(7 downto 0));
+    fill_valid <= dma_valid_i when dma_fsm = STREAM else '0';
+    fill_data <= dma_data_i;
+
+    -- 
+    process(clk_i) begin
+        if rising_edge(clk_i) then
+            -- One-cycle pointer-reset pulse
+            fill_start <= '0';
+
+            if init_i = '1' then
+                dma_fsm <= IDLE;
+                dma_req_o <= '0';
+                words <= (others => '0');
+                addr <= (others => '0');
+            else
+                case dma_fsm is
+                    when IDLE =>
+                        dma_req_o <= '0';
+
+                        if GAINS_LENGTH_WSTB = '1' and unsigned(GAINS_LENGTH) >= 4 then
+                            words <= shift_right(unsigned(GAINS_LENGTH), 2); -- bytes -> dwords
+                            addr <= unsigned(GAINS_ADDRESS);
+                            fill_start <= '1'; -- reset the BRAM pointer for the load
+                            dma_fsm <= REQ;
+                        end if;
+
+                    when REQ =>
+                        dma_req_o <= '1'; -- addr + len already stable
+
+                        -- Fire the DMA stream!
+                        if dma_ack_i = '1' then
+                            dma_req_o <= '0';
+                            dma_fsm <= STREAM;
+                        end if;
+
+                    when STREAM =>
+                        -- Words flow to the seam, advance on burst done
+                        if dma_done_i = '1' then
+                            words <= words - blen;
+                            addr <= addr + shift_left(resize(blen, addr'length), 2);
+
+                            if words - blen = 0 then
+                                dma_fsm <= DONE;
+                            else
+                                dma_fsm <= REQ; -- next burst, pointer keeps counting
+                            end if;
+                        end if;
+
+                    when DONE =>
+                        dma_fsm <= IDLE; -- ready for the next load
+
+                end case;
+            end if;
+        end if;
+    end process;
 
     -- Gain fill FSM: word-stream -> addressed BRAM write.
     -- start resets the pointer, each valid word writes then increments.
     process(clk_i) begin
         if rising_edge(clk_i) then
             wr_en <= '0'; -- strobe: default low, pulse per word
+
             if init_i = '1' or fill_start = '1' then
                 cnt <= (others => '0');
             elsif fill_valid = '1' then
