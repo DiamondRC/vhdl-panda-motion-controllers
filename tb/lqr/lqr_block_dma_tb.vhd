@@ -185,17 +185,18 @@ begin
         COMMIT_WSTB <= '1';
         wait until rising_edge(clk_i);
         COMMIT_WSTB <= '0';
-        wait until rising_edge(clk_i);
-
-        if unsigned(GEN) /= gen0 + 1 then
-            fail <= '1';
-            report "GEN did not increment on commit" severity error;
-        end if;
 
         -- Servo passes (setpoint held).
         servo_pass("k0", P0, SP);
         servo_pass("k1", P1, SP);
         servo_pass("k2", P2, SP);
+
+        -- Swap is deferred from commit to the next pass boundary, so GEN only
+        -- reflects the new bank once a pass has run (one commit => +1).
+        if unsigned(GEN) /= gen0 + 1 then
+            fail <= '1';
+            report "GEN did not increment after commit" severity error;
+        end if;
 
         wait until rising_edge(clk_i);
         if fail = '0' then
