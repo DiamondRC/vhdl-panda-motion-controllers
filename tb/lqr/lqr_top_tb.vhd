@@ -30,6 +30,7 @@ architecture rtl of lqr_top_td is
     constant AXES : natural := 3;
     constant M : natural := 3;
     constant DIV : natural := 128; -- small => fast test ticks
+    constant INTER_SCALE : real := 0.256; -- 256pm / count -> nm
 
     constant N  : natural := cond_width(AXES, true, true, false); -- state block [ pos | vel ]
     constant NI : natural := n_int(N, M, 0, true, true, false); -- total engine columns
@@ -95,6 +96,34 @@ architecture rtl of lqr_top_td is
         end if;
     end function;
 
+    function pv(v : integer) return signed is
+        -- Raw position/setpoint counts.
+    begin
+        return to_signed(v, LANE_A_W);
+    end function;
+
+    -- Golden counts -> nm (mirrors cond_input's to_nm).
+    function floor_shr(x : integer; f : natural) return integer is
+        constant d : integer := 2 ** f;
+    begin
+        if x >= 0 then
+            return x / d;
+        else
+            return -((-x + d - 1) / d); -- floor, not trunc
+        end if;
+    end function;
+
+    function nm_gold(c : signed) return signed is
+        constant SC : integer := integer(INTER_SCALE * real(2 ** PV_FRAC));
+        variable prod : integer := to_integer(c) * SC;
+        variable bias : integer := 2 ** (FRAC_DIFF - 1); -- half-away
+    begin
+        if prod < 0 then
+            bias := bias - 1;
+        end if;
+        return to_signed(floor_shr(prod + bias, FRAC_DIFF), LANE_A_W);
+    end function;
+
     -- Test definitions
     procedure load (
         -- Fill the inactive gain buffer (M x NI, addr = row*NI + col) + commit.
@@ -149,8 +178,8 @@ architecture rtl of lqr_top_td is
         x_eng := (others => (others => '0'));
 
         for ax in pc'range loop
-            x_eng(ax) := pc(ax);
-            x_eng(AXES + ax) := pc(ax) - pp(ax);
+            x_eng(ax) := nm_gold(pc(ax));
+            x_eng(AXES + ax) := nm_gold(pc(ax)) - nm_gold(pp(ax));
         end loop;
 
         for r in u_prev'range loop
@@ -158,7 +187,7 @@ architecture rtl of lqr_top_td is
         end loop;
 
         for c in sp'range loop
-            x_eng(SP_BASE + c) := sp(c);
+            x_eng(SP_BASE + c) := nm_gold(sp(c));
         end loop;
 
         for r in acc'range loop
@@ -220,15 +249,15 @@ architecture rtl of lqr_top_td is
 
     constant SP : mac_data_vec(0 to N - 1) :=
         (
-            pg(5.0), pg(10.0), pg(15.0),
-            pg(0.0), pg(0.0), pg(0.0)
+            pv(5), pv(10), pv(15),
+            pv(0), pv(0), pv(0)
         );
-    constant P0 : mac_data_vec(0 to AXES - 1) := 
-        (pg(10.0), pg(20.0), pg(30.0));
-    constant P1 : mac_data_vec(0 to AXES - 1) := 
-        (pg(12.0), pg(22.0), pg(28.0));
+    constant P0 : mac_data_vec(0 to AXES - 1) :=
+        (pv(10), pv(20), pv(30));
+    constant P1 : mac_data_vec(0 to AXES - 1) :=
+        (pv(12), pv(22), pv(28));
     constant P2 : mac_data_vec(0 to AXES - 1) :=
-        (pg( 8.0), pg(25.0), pg(35.0));
+        (pv( 8), pv(25), pv(35));
 
 begin
 
@@ -247,6 +276,7 @@ begin
             M => M,
             DIV => DIV,
             HIST_DEPTH => 2,
+            INTER_SCALE => INTER_SCALE,
             G_PHI => 0,
             G_VELOCITY => true,
             G_PREV => false,
@@ -283,10 +313,8 @@ begin
         sp_i <= SP;
 
         -- Warm-up holds P0 (vel = 0), then the position sequence.
-        -- u = pos + 0.25*vel + 0.5*u_prev - sp_pos:
-        --   k0 -> [5, 10, 15]
-        --   k1 -> [10, 18, 20]
-        --   k2 -> [7, 25, 32]
+        -- Inputs are raw counts; the model scales pos/sp -> nm before K.
+        -- u = pos + 0.25*vel + 0.5*u_prev - sp_pos (nm), model-checked.
         servo_check("k0", P0, P0, SP, K, u_prev_g,
             clk_i, pos_i, u_valid_o, u_o, fail);
         servo_check("k1", P1, P0, SP, K, u_prev_g,

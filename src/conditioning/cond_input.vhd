@@ -30,6 +30,7 @@ entity cond_input is
     generic (
         AXES : positive := 3;
         HIST_DEPTH : positive := 2; -- 2 covers vel/prev
+        INTER_SCALE : real := 0.256; -- 256pm / count -> nm
 
         G_STATE : boolean := true;
         G_VELOCITY : boolean := true;
@@ -108,8 +109,9 @@ begin
                             poshist(ax)(t) <= poshist(ax)(t - 1);
                         end loop;
 
-                        -- kth measured position
-                        poshist(ax)(0) <= pos_i(ax);
+                        -- kth measured position, converted to nm
+                        -- TODO - plausably misses timing (42x15 mul + round)
+                        poshist(ax)(0) <= to_nm(pos_i(ax), INTER_SCALE);
                     end loop;
 
                     -- Wait HIST_DEPTH ticks until we're ready

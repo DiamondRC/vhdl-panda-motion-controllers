@@ -27,10 +27,12 @@ entity lqr_top is
     generic (
         AXES : positive := 3;
         M : positive := 3; 
-        DIV : positive := 12500; -- 12500 = 20KHz
+        DIV : positive := 12500; -- 12500 = 10KHz
         HIST_DEPTH : positive := 2;
+        INTER_SCALE : real := 0.256; -- 256pm / count -> nm
 
         G_PHI : natural := 0; -- Count of nonlinear lift columns phi(x)
+        G_REF : natural := 0; -- Setpoint block width (0 => defaults to N)
 
         G_VELOCITY : boolean := true; -- Add a velocity term?
         G_PREV : boolean := false; -- Recall previous input state?
@@ -44,14 +46,19 @@ entity lqr_top is
 
         pos_i : in  mac_data_vec(0 to AXES - 1);  -- Interferometry
         sp_i : in  mac_data_vec( -- PandABlocks
-            0 to cond_width(AXES, true, G_VELOCITY, G_PREV) - 1
+            0 to resolve_ref(
+                cond_width(AXES, true, G_VELOCITY, G_PREV), G_REF
+            ) - 1
         );
 
         wr_addr_i : in  unsigned(
             ceil_log2(
                 M * n_int(
-                    cond_width(AXES, true, G_VELOCITY, G_PREV),
-                    M, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE
+                    cond_width(AXES, true, G_VELOCITY, G_PREV), M,
+                    resolve_ref(
+                        cond_width(AXES, true, G_VELOCITY, G_PREV), G_REF
+                    ),
+                    G_PHI, G_UPREV, G_SETPOINT, G_AFFINE
                 )
             ) - 1 downto 0
         );
@@ -71,12 +78,19 @@ end entity;
 architecture main of lqr_top is
     -- Constant
     constant N : positive := cond_width(AXES, true, G_VELOCITY, G_PREV);
+    constant REF : positive := resolve_ref(N, G_REF); -- Setpoint block width
 
     -- Signals
     signal tick, cond_valid : std_logic;
-    signal cond_x, sp_reg : mac_data_vec(0 to N - 1);
+    signal cond_x : mac_data_vec(0 to N - 1);
+    signal sp_reg : mac_data_vec(0 to REF - 1);
 
 begin
+
+    -- Ensure input scaling is correct between LQR and conditioning
+    assert DES_FRAC = STATE_F
+        report "Input nm scaling miss-aligned! cond DES_FRAC /= lqr STATE_F"
+    severity failure;
 
     -- Create the servo-rate
     u_div : entity work.servo_div 
@@ -95,6 +109,7 @@ begin
         generic map (
             AXES => AXES,
             HIST_DEPTH => HIST_DEPTH,
+            INTER_SCALE => INTER_SCALE,
             G_STATE => true,
             G_VELOCITY => G_VELOCITY,
             G_PREV => G_PREV
@@ -114,6 +129,7 @@ begin
             M => M,
             N => N,
             G_PHI => 0,
+            G_REF => G_REF,
             G_UPREV => G_UPREV,
             G_SETPOINT => G_SETPOINT,
             G_AFFINE => G_AFFINE
@@ -141,7 +157,10 @@ begin
             if init_i = '1' then
                 sp_reg <= (others => (others => '0'));
             elsif tick = '1' then
-                sp_reg <= sp_i;
+                -- Send all inputs to nm
+                for r in 0 to REF - 1 loop
+                    sp_reg(r) <= to_nm(sp_i(r), INTER_SCALE);
+                end loop;
             end if;
         end if;
     end process;

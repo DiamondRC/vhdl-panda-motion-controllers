@@ -57,6 +57,7 @@ entity lqr is
 
         -- Tune the control algorithm's shape
         G_PHI : natural := 0; -- How many K_i * i blocks in control algorithm?
+        G_REF : natural := 0; -- Setpoint block width (0 => defaults to N)
         G_UPREV : boolean := false; -- Feed in the controller's previous outputs?
         G_SETPOINT : boolean := false; -- Include the SP in the control?
         G_AFFINE : boolean := false -- Is affine (K * x + affine)?
@@ -66,12 +67,15 @@ entity lqr is
         init_i : in std_logic; -- PandA reset
 
         -- Setpoint(s)
-        sp_i : in mac_data_vec(0 to N - 1); 
+        sp_i : in mac_data_vec(0 to resolve_ref(N, G_REF) - 1);
 
         -- Gain stream
         wr_addr_i : in  unsigned(
             ceil_log2(
-                M * n_int(N, M, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE)
+                M * n_int(
+                    N, M, resolve_ref(N, G_REF),
+                    G_PHI, G_UPREV, G_SETPOINT, G_AFFINE
+                )
             ) - 1 downto 0
         );
         wr_data_i : in  signed(LANE_B_W - 1 downto 0);
@@ -93,7 +97,8 @@ end entity lqr;
 
 architecture main of lqr is
     -- Constants
-    constant N_INT : positive := n_int(N, M, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE);
+    constant REF : positive := resolve_ref(N, G_REF); -- Setpoint block width
+    constant N_INT : positive := n_int(N, M, REF, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE);
     constant FEAT_BASE : natural := N; -- [ state | features | u_prev | setpoint | affine ]
     constant UPREV_BASE : natural := N + G_PHI;
     -- Ports are always active => tie off SP rather than handling w/ generators
@@ -123,7 +128,7 @@ begin
 
     -- Handle SP separately as it's external
     gen_sp : if G_SETPOINT generate
-        s : for r in 0 to N - 1 generate
+        s : for r in 0 to REF - 1 generate
             x_eng(SP_BASE + r) <= sp_i(r);
         end generate;
     end generate;

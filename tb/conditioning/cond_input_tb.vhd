@@ -25,6 +25,7 @@ architecture rtl of cond_input_td is
     -- Topology
     constant AXES : natural := 3;
     constant HIST_DEPTH : natural := 2;
+    constant INTER_SCALE : real := 0.256; -- 256pm / count -> nm
 
     -- Ports
     signal clk_i  : std_logic := '0';
@@ -43,7 +44,29 @@ architecture rtl of cond_input_td is
         return to_signed(v, LANE_A_W);
     end function;
 
-    
+    -- Golden counts -> nm (independent of the DUT fixed-point path).
+    function floor_shr(x : integer; f : natural) return integer is
+        constant d : integer := 2 ** f;
+    begin
+        if x >= 0 then
+            return x / d;
+        else
+            return -((-x + d - 1) / d); -- floor, not trunc
+        end if;
+    end function;
+
+    function nm_gold(c : signed) return signed is
+        constant SC : integer := integer(INTER_SCALE * real(2 ** PV_FRAC));
+        variable prod : integer := to_integer(c) * SC;
+        variable bias : integer := 2 ** (FRAC_DIFF - 1); -- half-away
+    begin
+        if prod < 0 then
+            bias := bias - 1;
+        end if;
+        return to_signed(floor_shr(prod + bias, FRAC_DIFF), LANE_A_W);
+    end function;
+
+
     procedure step (
         -- Drive one tick with pos, sample once the history has settled,
         -- and check the channels (channel-major [ state | vel | prev ]).
@@ -78,21 +101,21 @@ architecture rtl of cond_input_td is
             end if;
 
             for ax in 0 to AXES - 1 loop
-                if x_o(ax) /= dp(ax) then
+                if x_o(ax) /= nm_gold(dp(ax)) then
                     fail_o <= '1';
                     report name & ": state(" & integer'image(ax) &
                         ") got " & integer'image(to_integer(x_o(ax)))
                     severity error;
                 end if;
 
-                if x_o(AXES + ax) /= dp(ax) - pp(ax) then
+                if x_o(AXES + ax) /= nm_gold(dp(ax)) - nm_gold(pp(ax)) then
                     fail_o <= '1';
                     report name & ": vel(" & integer'image(ax) &
                         ") got " & integer'image(to_integer(x_o(AXES + ax)))
                     severity error;
                 end if;
 
-                if x_o(2 * AXES + ax) /= pp(ax) then
+                if x_o(2 * AXES + ax) /= nm_gold(pp(ax)) then
                     fail_o <= '1';
                     report name & ": prev(" & integer'image(ax) &
                         ") got " & integer'image(to_integer(x_o(2 * AXES + ax)))
@@ -110,6 +133,7 @@ architecture rtl of cond_input_td is
     constant P1 : mac_data_vec(0 to AXES - 1) := (pv( 15), pv( 18), pv( 40));
     constant P2 : mac_data_vec(0 to AXES - 1) := (pv( 15), pv( 25), pv( 35));
     constant P3 : mac_data_vec(0 to AXES - 1) := (pv(  5), pv( 25), pv( 50));
+    constant PR : mac_data_vec(0 to AXES - 1) := (pv( 16), pv(-16), pv( 16)); -- rounding tie
     constant PA : mac_data_vec(0 to AXES - 1) := (pv(100), pv(-50), pv(  7));
     constant PB : mac_data_vec(0 to AXES - 1) := (pv( 90), pv(-30), pv( 12));
 
@@ -128,6 +152,7 @@ begin
         generic map (
             AXES => AXES,
             HIST_DEPTH => HIST_DEPTH,
+            INTER_SCALE => INTER_SCALE,
             G_STATE => true,
             G_VELOCITY => true,
             G_PREV => true
@@ -160,6 +185,10 @@ begin
         step("k2", P2, P1, true,
             clk_i, pos_i, tick_i, x_o, valid_o, fail);
         step("k3", P3, P2, true,
+            clk_i, pos_i, tick_i, x_o, valid_o, fail);
+
+        -- Half-away tie + negative counts.
+        step("tie", PR, P3, true,
             clk_i, pos_i, tick_i, x_o, valid_o, fail);
 
         -- Init clears history + restarts the warm-up.

@@ -55,12 +55,29 @@ package lqr_consts is
     type lqr_out_vec is array (natural range <>) of lqr_out;
 
     -- Helper functions
+
+    -- Resolve the reference/setpoint block width: g_ref if given (> 0),
+    -- else fall back to the state width.
+    function resolve_ref(
+        default_n : natural;
+        g_ref : natural
+    ) return positive;
+
     function n_int(
         N : natural; -- State block width
         M : natural; -- Output width
+        ref : natural; -- Setpoint/reference block width
         feats : natural; -- Feature block
-        
+
         -- include the controller output, SP and affine?
+        uprev, setpoint, affine: boolean
+    ) return positive;
+
+    -- Overload: reference width defaults to the state width N.
+    function n_int(
+        N : natural;
+        M : natural;
+        feats : natural;
         uprev, setpoint, affine: boolean
     ) return positive;
 
@@ -69,6 +86,32 @@ end package lqr_consts;
 
 package body lqr_consts is
 
+    function resolve_ref(
+        default_n : natural;
+        g_ref : natural
+    ) return positive is
+    begin
+        if g_ref = 0 then
+            return default_n;
+        else
+            return g_ref;
+        end if;
+    end function;
+
+    function n_int(
+        N : natural;
+        M : natural;
+        ref : natural;
+        feats : natural;
+        uprev, setpoint, affine: boolean
+    ) return positive is
+    begin
+        return N + feats +
+            M * boolean'pos(uprev) +
+            ref * boolean'pos(setpoint) +
+            boolean'pos(affine);
+    end function;
+
     function n_int(
         N : natural;
         M : natural;
@@ -76,10 +119,7 @@ package body lqr_consts is
         uprev, setpoint, affine: boolean
     ) return positive is
     begin
-        return N + feats + 
-            M * boolean'pos(uprev) + 
-            N * boolean'pos(setpoint) + 
-            boolean'pos(affine);
+        return n_int(N, M, N, feats, uprev, setpoint, affine);
     end function;
 
 end package body;
