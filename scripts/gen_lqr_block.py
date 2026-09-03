@@ -126,7 +126,7 @@ def make_block_ini(c):
                 "streamed into the inactive gain bank.",
                 "31:0 K int", "    One Q7.25 gain word."]
 
-    out += ["", "[COMMIT]", "type: param bit", "wstb: true",
+    out += ["", "[COMMIT]", "type: write action", "wstb: true",
             "description: Swap the staged gains into the active bank ",
             "", "[GEN]", "type: read",
             "description: Gain generation counter -- read to confirm a swap has landed."]

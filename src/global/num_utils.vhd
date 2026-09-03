@@ -16,6 +16,7 @@ package num_utils is
     function num_chunks(W : natural; P : natural) return natural;
     function max_s(w : natural) return signed;
     function min_s(w : natural) return signed;
+    function to_svector(v : natural; w : natural) return std_logic_vector;
 
 end package num_utils;
 
@@ -90,6 +91,13 @@ package body num_utils is
     begin
         r(w - 1) := '1';
         return r;
+    end function;
+
+    -- Unsigned int -> w-bit std_logic_vector
+    function to_svector(v : natural; w : natural) return std_logic_vector is
+        --
+    begin
+        return std_logic_vector(to_unsigned(v, w));
     end function;
 
 end package body num_utils;

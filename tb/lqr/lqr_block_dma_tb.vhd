@@ -191,8 +191,8 @@ begin
         servo_pass("k1", P1, SP);
         servo_pass("k2", P2, SP);
 
-        -- Swap is deferred from commit to the next pass boundary, so GEN only
-        -- reflects the new bank once a pass has run (one commit => +1).
+        -- Swap occurs after commit at the next pass boundary so
+        -- a pass must run before GEN is incremented (one commit => +1).
         if unsigned(GEN) /= gen0 + 1 then
             fail <= '1';
             report "GEN did not increment after commit" severity error;
