@@ -208,6 +208,8 @@ begin
     begin
         if rising_edge(clk) then
             if awvalid = '1' and awready = '1' and aw_count < MAX_BURSTS then
+                report "burst " & integer'image(aw_count) & " AW @ "
+                    & integer'image(to_integer(unsigned(awaddr))); -- DIAG: localise hang
                 aw_log(aw_count) <= awaddr;
                 aw_count <= aw_count + 1;
             end if;
@@ -244,7 +246,9 @@ begin
             wait until rising_edge(clk);
             tick <= '0';
             wait until rising_edge(clk) and busy = '1'; -- started
+            report "export " & integer'image(exp_num) & " started"; -- DIAG
             wait until rising_edge(clk) and busy = '0'; -- finished
+            report "export " & integer'image(exp_num) & " finished"; -- DIAG
             wait until rising_edge(clk);
 
             -- Structure: seq -> payload chunks -> seq, all line-aligned
