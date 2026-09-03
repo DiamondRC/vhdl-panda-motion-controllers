@@ -181,8 +181,7 @@ begin
         if rising_edge(clk) then
             if wvalid = '1' and wready = '1' then
                 assert wstrb = x"FF"
-                    report "partial-line write (WSTRB /= 0xFF) -> would force L2 RMW"
-                    severity error;
+                    report "partial-line write (WSTRB /= 0xFF)" severity error;
                 if wstrb /= x"FF" then fail <= '1'; end if;
             end if;
         end if;
