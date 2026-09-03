@@ -101,6 +101,16 @@ begin
         wait;
     end process;
 
+    -- watchdog: fail loudly instead of hanging if an export stalls
+    watchdog : process
+    begin
+        wait until sim_done for 2000 * CLK_PERIOD;
+        assert sim_done
+            report "state_export_tb TIMEOUT - an export never completed"
+            severity failure;
+        wait;
+    end process;
+
     ----------------------------------------------------------------------------
     -- DUT + mock slave
     ----------------------------------------------------------------------------
@@ -168,6 +178,9 @@ begin
             bvalid_o => bvalid,
             bready_i => bready,
             bresp_o => bresp,
+
+            w_wait_i => w_wait,
+            berr_i => berr,
 
             mem_o => mem
         );
