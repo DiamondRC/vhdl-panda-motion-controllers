@@ -121,7 +121,7 @@ begin
             setp_i => setp,
             setv_i => setv,
             busy_o => busy,
-            error_o => error,
+            error_o => dut_error,
 
             m_axi_awvalid => awvalid,
             m_axi_awready => awready,
