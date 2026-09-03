@@ -89,7 +89,7 @@ architecture rtl of state_export is
     signal pos_l, vel_l, setp_l, setv_l : state_word_vec(0 to AXES-1);
 
     -- Payload loop
-    signal pay_ptr : natural range 0 to PAY_BEATS := 0; -- start beat of current chunk
+    signal pay_ptr : natural range 0 to PAY_BEATS := 0; -- start beat of current chunk_beats
     signal burst_beat : natural range 0 to CHUNK := 0; -- beat within current burst
 
     -- Master handshake
@@ -150,7 +150,7 @@ begin
     -- ctrl: manages the current burst.
     ctrl : process(all)
         variable remain : natural;
-        variable chunk : natural;
+        variable chunk_beats : natural;
     begin
         case state is
             when WR_SEQ_ODD | WR_SEQ_EVEN =>
@@ -165,12 +165,12 @@ begin
                 remain := PAY_BEATS - pay_ptr;
 
                 if remain < CHUNK then
-                    chunk := remain;
+                    chunk_beats := remain;
                 else
-                    chunk := CHUNK;
+                    chunk_beats := CHUNK;
                 end if;
 
-                mst_blen <= to_svector(chunk, AXI_BURST_WIDTH);
+                mst_blen <= to_svector(chunk_beats, AXI_BURST_WIDTH);
 
             when others =>
                 mst_addr <= BASE_ADDR;
@@ -223,7 +223,7 @@ begin
     -- FSM: drive the seqlock write
     fsm : process(clk_i)
         variable remain : natural;
-        variable chunk : natural;
+        variable chunk_beats : natural;
     begin
         if rising_edge(clk_i) then
             if init_i then
@@ -271,32 +271,32 @@ begin
                     when WR_SEQ_ODD =>
                         if mst_done then
                             burst_beat <= 0;
-                            -- send first payload chunk
+                            -- send first payload chunk_beats
                             mst_start <= '1'; 
                             state <= WR_PAYLOAD;
                         end if;
 
                     when WR_PAYLOAD =>
                         if mst_done then
-                            -- track chunk transactions
+                            -- track chunk_beats transactions
                             remain := PAY_BEATS - pay_ptr;
 
                             -- track outstanding work
                             if remain < CHUNK then
-                                chunk := remain;
+                                chunk_beats := remain;
                             else
-                                chunk := CHUNK;
+                                chunk_beats := CHUNK;
                             end if;
 
-                            if pay_ptr + chunk >= PAY_BEATS then
+                            if pay_ptr + chunk_beats >= PAY_BEATS then
                                 -- finish transaction
                                 seq <= seq + 1;
                                 burst_beat <= 0;
                                 mst_start <= '1';
                                 state <= WR_SEQ_EVEN;
                             else
-                                -- send next chunk
-                                pay_ptr <= pay_ptr + chunk;
+                                -- send next chunk_beats
+                                pay_ptr <= pay_ptr + chunk_beats;
                                 burst_beat <= 0;
                                 mst_start <= '1';
                             end if;
