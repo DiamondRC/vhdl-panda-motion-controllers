@@ -20,15 +20,17 @@ use work.acp_tb_pkg.all;
 
 entity mock_acp is
     generic (
-        MEM_WORDS : positive := 64   -- 64-bit words of backing store
+        MEM_WORDS : positive := 64 -- 64-bit words of backing store
     );
     port (
         clk_i : in  std_logic;
+        init_i : in  std_logic; -- PandA reset
 
         -- AXI write channel (slave view)
         awvalid_i : in  std_logic;
         awready_o : out std_logic;
         awaddr_i : in  std_logic_vector(31 downto 0);
+        awlen_i : in  std_logic_vector(3 downto 0); -- beats - 1
 
         wvalid_i : in  std_logic;
         wready_o : out std_logic;
@@ -65,13 +67,20 @@ begin
     process(clk_i)
         variable base : natural := 0; -- word index of burst base
         variable beat : natural := 0; -- beat within burst
+        variable alen : natural := 0; -- last-beat index (AWLEN) of this burst
     begin
         if rising_edge(clk_i) then
+            if init_i = '1' then
+                st <= IDLE; -- drop any in-flight burst
+                wcnt <= 0;
+                berr_l <= '0';
+            else
             case st is
                 when IDLE =>
                     if awvalid_i = '1' then
                         base := to_integer(unsigned(awaddr_i)) / 8;
                         beat := 0;
+                        alen := to_integer(unsigned(awlen_i)); -- latch length
                         berr_l <= berr_i; -- latch the error intent
                         wcnt <= w_wait_i; -- initial back-pressure
                         st <= ACTIVE;
@@ -81,16 +90,22 @@ begin
                     if wcnt > 0 then
                         wcnt <= wcnt - 1; -- stall (WREADY low)
                     elsif wvalid_i = '1' then -- WREADY high, accept
+                        assert beat <= alen -- never spill past the declared burst
+                            report "mock_acp: beat index exceeds AWLEN"
+                            severity error;
                         if base + beat < MEM_WORDS then
                             mem(base + beat) <= wdata_i;
                         end if;
 
-                        beat := beat + 1;
                         if wlast_i = '1' then
+                            assert beat = alen -- WLAST must land on the last beat
+                                report "mock_acp: WLAST not on the AWLEN beat"
+                                severity error;
                             st <= RESP;
                         else
                             wcnt <= w_wait_i; -- reload gap to next beat
                         end if;
+                        beat := beat + 1;
                     end if;
 
                 when RESP =>
@@ -98,6 +113,7 @@ begin
                         st <= IDLE;
                     end if;
             end case;
+            end if;
         end if;
     end process;
 end architecture;

@@ -46,7 +46,7 @@ architecture rtl of state_export_td is
     -- AXI wires DUT <-> mock
     signal awvalid, awready, wvalid, wready, wlast, bvalid, bready : std_logic;
     signal awaddr : std_logic_vector(31 downto 0);
-    signal awid, bid, wid : std_logic_vector(2 downto 0);
+    signal awid, wid : std_logic_vector(2 downto 0);
     signal awlen : std_logic_vector(3 downto 0);
     signal awsize : std_logic_vector(2 downto 0);
     signal awburst : std_logic_vector(1 downto 0);
@@ -66,6 +66,11 @@ architecture rtl of state_export_td is
     signal err_seen : std_logic := '0';
     signal aw_count : natural   := 0;
     signal aw_log : addr_vec(0 to MAX_BURSTS - 1) := (others => (others => '0'));
+
+    -- Concurrent seqlock reader witnesses
+    signal reader_torn : std_logic := '0'; -- saw stamp inconsistent with an even seq
+    signal reader_inflight : std_logic := '0'; -- witnessed an odd (in-flight) seq
+    signal reader_reads : natural := 0; -- committed snapshots verified
 
     -- Expected test values.
     function exp_pos (k : natural) return std_logic_vector is
@@ -156,7 +161,7 @@ begin
             m_axi_bvalid => bvalid,
             m_axi_bready => bready,
             m_axi_bresp => bresp,
-            m_axi_bid => bid
+            m_axi_bid => "000" -- unused by the master, tie off
         );
 
     slave : entity work.mock_acp
@@ -165,9 +170,11 @@ begin
         )
         port map (
             clk_i => clk,
+            init_i => init,
             awvalid_i => awvalid,
             awready_o => awready,
             awaddr_i => awaddr,
+            awlen_i => awlen,
 
             wvalid_i => wvalid,
             wready_o => wready,
@@ -184,8 +191,6 @@ begin
 
             mem_o => mem
         );
-
-    bid <= "000"; -- mock doesn't drive BID
 
     ----------------------------------------------------------------------------
     -- Observers (snoop the shared bus)
@@ -208,8 +213,6 @@ begin
     begin
         if rising_edge(clk) then
             if awvalid = '1' and awready = '1' and aw_count < MAX_BURSTS then
-                report "burst " & integer'image(aw_count) & " AW @ "
-                    & integer'image(to_integer(unsigned(awaddr))); -- DIAG: localise hang
                 aw_log(aw_count) <= awaddr;
                 aw_count <= aw_count + 1;
             end if;
@@ -222,6 +225,38 @@ begin
                 err_seen <= '1'; -- BRESP error reached the top
             end if;
         end if;
+    end process;
+
+    -- A PS-style seqlock reader racing the writer
+    reader : process
+        variable s1, s2 : unsigned(31 downto 0);
+        variable stmp : unsigned(31 downto 0);
+    begin
+        wait until rising_edge(clk) and init = '0';
+        loop
+            exit when sim_done;
+            s1 := unsigned(mem(0)(31 downto 0)); -- seq before
+            if s1(0) = '1' then
+                reader_inflight <= '1'; -- writer mid-export, retry
+                wait until rising_edge(clk);
+                next;
+            end if;
+
+            stmp := unsigned(mem(PAYLOAD_OFF / BEAT_BYTES)(31 downto 0));
+            wait until rising_edge(clk); -- leave a window for the writer
+            s2 := unsigned(mem(0)(31 downto 0)); -- seq after
+
+            if s1 = s2 then -- unchanged even seq => committed snapshot
+                if stmp /= s1 / 2 then
+                    reader_torn <= '1'; -- ordering broke: stamp not paired to seq
+                else
+                    reader_reads <= reader_reads + 1;
+                end if;
+            end if;
+
+            wait until rising_edge(clk);
+        end loop;
+        wait;
     end process;
 
     ----------------------------------------------------------------------------
@@ -246,9 +281,7 @@ begin
             wait until rising_edge(clk);
             tick <= '0';
             wait until rising_edge(clk) and busy = '1'; -- started
-            report "export " & integer'image(exp_num) & " started"; -- DIAG
             wait until rising_edge(clk) and busy = '0'; -- finished
-            report "export " & integer'image(exp_num) & " finished"; -- DIAG
             wait until rising_edge(clk);
 
             -- Structure: seq -> payload chunks -> seq, all line-aligned
@@ -304,6 +337,8 @@ begin
                 check(err_seen = '0', "unexpected error_o assertion");
             end if;
         end procedure;
+
+        variable b2_base : natural; -- burst-log offset for the B2 scenarios
     begin
         -- Reset
         init <= '1';
@@ -337,6 +372,49 @@ begin
         w_wait <= 0;
         berr <= '1';
         run_and_check(3, true);
+
+        -- Scenario 4: a tick mid-export is dropped, not queued
+        w_wait <= 0;
+        berr <= '0';
+        b2_base := aw_count;
+        tick <= '1';
+        wait until rising_edge(clk);
+        tick <= '0';
+        wait until rising_edge(clk) and busy = '1'; -- export in flight
+        tick <= '1'; -- intrude with a second tick
+        wait until rising_edge(clk);
+        tick <= '0';
+        wait until rising_edge(clk) and busy = '0'; -- one export finished
+        wait until rising_edge(clk);
+        check(aw_count - b2_base = EXP_BURSTS, "mid-export tick was not dropped");
+
+        -- Scenario 5: reset mid-export returns cleanly to idle, then recovers
+        tick <= '1';
+        wait until rising_edge(clk);
+        tick <= '0';
+        wait until rising_edge(clk) and busy = '1'; -- export in flight
+        wait for 3 * CLK_PERIOD; -- partway through the payload
+        init <= '1'; -- yank reset mid-transaction
+        wait for 2 * CLK_PERIOD;
+        init <= '0';
+        wait until rising_edge(clk);
+        check(busy = '0', "reset did not return the FSM to idle");
+
+        -- a clean export still runs after the reset (counters restart)
+        b2_base := aw_count;
+        tick <= '1';
+        wait until rising_edge(clk);
+        tick <= '0';
+        wait until rising_edge(clk) and busy = '1';
+        wait until rising_edge(clk) and busy = '0';
+        wait until rising_edge(clk);
+        check(aw_count - b2_base = EXP_BURSTS, "no clean export after reset");
+        check(mem(0)(0) = '0', "seq not even after the post-reset export");
+
+        -- Concurrent reader must have raced the writer without ever tearing.
+        check(reader_torn = '0', "seqlock reader saw a torn snapshot");
+        check(reader_inflight = '1', "reader never caught an in-flight export");
+        check(reader_reads > 0, "reader never verified a committed snapshot");
 
         -- Settle the last check() assignment before the verdict.
         wait until rising_edge(clk);

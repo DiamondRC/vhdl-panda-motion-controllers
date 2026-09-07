@@ -15,6 +15,10 @@ use work.matrix_consts.all;
 use work.mac_utils.all;
 use work.lqr_consts.all;
 
+-- Shared helpers
+use work.lqr_block_tb_pkg.kg;
+use work.lqr_block_tb_pkg.round_sat;
+
 
 entity lqr_td is
 end entity lqr_td;
@@ -103,53 +107,11 @@ architecture rtl of lqr_td is
 
 
     -- Test helpers
-    function kg(r : real) return signed is
-        -- Real -> Gain FP.
-    begin
-        return to_signed(integer(round(r * 2.0 ** GAIN_F)), LANE_B_W);
-    end function;
-
     function xg(r : real) return signed is
         -- Real -> State FP.
     begin
         return to_signed(integer(round(r * 2.0 ** STATE_F)), LANE_A_W);
     end function;
-
-    function round_sat(acc : signed; fd : natural; w : natural) return signed is
-        -- Magnitude rounding method:
-        -- Round-half-away then saturate.
-        -- Independant (and more expensive) method
-        -- compared to bias-shift => proves result.
-        variable mag : signed(acc'length + 1 downto 0);
-        variable r : signed(acc'length + 1 downto 0);
-    begin
-        if fd = 0 then
-            r := resize(acc, r'length);
-        else
-            mag := abs(resize(acc, mag'length)); -- |acc| +guard
-            mag := mag + shift_left(
-                to_signed(
-                    1, mag'length
-                    ),
-                    fd - 1
-                ); -- + half
-            r := shift_right(mag, fd); -- floor(|acc|/2^FD + .5)
-
-            if acc(acc'high) = '1' then
-                r := -r; -- restore sign
-            end if;
-        end if;
-
-        if r > max_s(w) then
-            return max_s(w);
-        elsif r < min_s(w) then
-            return min_s(w);
-        else
-            return resize(r, w);
-        end if;
-
-    end function;
-
 
     -- Test definitions
     procedure load (

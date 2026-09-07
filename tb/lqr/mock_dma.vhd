@@ -66,7 +66,12 @@ begin
                         gapc := gapc + 1; -- stall valid (back-pressure)
                     else
                         gapc := 0;
-                        dma_data_o <= mem_i(idx);
+                        assert idx < DEPTH -- burst must not read past the backing store
+                            report "mock_dma: read index past DEPTH"
+                            severity error;
+                        if idx < DEPTH then
+                            dma_data_o <= mem_i(idx);
+                        end if;
                         dma_valid_o <= '1';
                         if wleft = 1 then
                             dma_done_o <= '1'; -- coincident with last word

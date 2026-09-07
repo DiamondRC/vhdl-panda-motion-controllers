@@ -16,6 +16,13 @@ use work.mac_utils.all;
 use work.lqr_consts.all;
 use work.cond_consts.all;
 
+-- Shared helpers
+use work.lqr_block_tb_pkg.kg;
+use work.lqr_block_tb_pkg.pv;
+use work.lqr_block_tb_pkg.floor_shr;
+use work.lqr_block_tb_pkg.nm_gold;
+use work.lqr_block_tb_pkg.round_sat;
+
 
 entity lqr_top_td is
 end entity lqr_top_td;
@@ -58,70 +65,10 @@ architecture rtl of lqr_top_td is
     signal u_valid_o : std_logic;
 
     -- Test helpers
-    function kg(r : real) return signed is
-        -- Real -> Gain FP.
-    begin
-        return to_signed(integer(round(r * 2.0 ** GAIN_F)), LANE_B_W);
-    end function;
-
     function pg(r : real) return signed is
         -- Real -> position/state FP.
     begin
         return to_signed(integer(round(r * 2.0 ** STATE_F)), LANE_A_W);
-    end function;
-
-    function round_sat(acc : signed; fd : natural; w : natural) return signed is
-        -- Magnitude round-half-away then saturate (independent of fp_utils).
-        variable mag : signed(acc'length + 1 downto 0);
-        variable r : signed(acc'length + 1 downto 0);
-    begin
-        if fd = 0 then
-            r := resize(acc, r'length);
-        else
-            mag := abs(resize(acc, mag'length));
-            mag := mag + shift_left(to_signed(1, mag'length), fd - 1);
-            r := shift_right(mag, fd);
-
-            if acc(acc'high) = '1' then
-                r := -r;
-            end if;
-        end if;
-
-        if r > max_s(w) then
-            return max_s(w);
-        elsif r < min_s(w) then
-            return min_s(w);
-        else
-            return resize(r, w);
-        end if;
-    end function;
-
-    function pv(v : integer) return signed is
-        -- Raw position/setpoint counts.
-    begin
-        return to_signed(v, LANE_A_W);
-    end function;
-
-    -- Golden counts -> nm (mirrors cond_input's to_nm).
-    function floor_shr(x : integer; f : natural) return integer is
-        constant d : integer := 2 ** f;
-    begin
-        if x >= 0 then
-            return x / d;
-        else
-            return -((-x + d - 1) / d); -- floor, not trunc
-        end if;
-    end function;
-
-    function nm_gold(c : signed) return signed is
-        constant SC : integer := integer(INTER_SCALE * real(2 ** PV_FRAC));
-        variable prod : integer := to_integer(c) * SC;
-        variable bias : integer := 2 ** (FRAC_DIFF - 1); -- half-away
-    begin
-        if prod < 0 then
-            bias := bias - 1;
-        end if;
-        return to_signed(floor_shr(prod + bias, FRAC_DIFF), LANE_A_W);
     end function;
 
     -- Test definitions
