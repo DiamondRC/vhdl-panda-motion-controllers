@@ -19,7 +19,6 @@ use work.cond_consts.all;
 -- Shared helpers
 use work.lqr_block_tb_pkg.kg;
 use work.lqr_block_tb_pkg.pv;
-use work.lqr_block_tb_pkg.floor_shr;
 use work.lqr_block_tb_pkg.nm_gold;
 use work.lqr_block_tb_pkg.round_sat;
 
