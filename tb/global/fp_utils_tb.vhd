@@ -52,7 +52,7 @@ architecture rtl of fp_utils_td is
     ) is
         variable got : signed(exp'length - 1 downto 0);
     begin
-        got := requantize(raw, in_frac - out_frac, exp'length, mode);
+        got := requantise(raw, in_frac - out_frac, exp'length, mode);
 
         if got /= exp then
             fail_o := '1';
