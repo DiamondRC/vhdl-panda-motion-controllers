@@ -54,7 +54,7 @@ entity lqr_block is
 
         -- ACP write-master bundle (records thread one port per wrapper level)
         m_axi_o : out acp_mosi_t;
-        m_axi_i : in acp_miso_t;
+        m_axi_i : in acp_miso_t := ACP_MISO_IDLE;
 
         u_valid_o : out std_logic
     );
