@@ -58,7 +58,6 @@ entity lqr_top is
                 cond_width(AXES, true, G_VELOCITY, G_PREV), G_REF
             ) - 1
         );
-        sv_i : in  mac_data_vec(0 to AXES - 1) := (others => (others => '0'));
 
         wr_addr_i : in  unsigned(
             ceil_log2(
@@ -119,7 +118,6 @@ architecture main of lqr_top is
     signal tick, cond_valid : std_logic;
     signal cond_x : mac_data_vec(0 to N - 1);
     signal sp_reg : mac_data_vec(0 to REF - 1);
-    signal sv_reg : mac_data_vec(0 to AXES - 1);
     signal export_en : std_logic;
     signal exp_pos, exp_vel, exp_setp, exp_setv : state_word_vec(0 to AXES - 1);
 
@@ -194,14 +192,10 @@ begin
         if rising_edge(clk_i) then
             if init_i = '1' then
                 sp_reg <= (others => (others => '0'));
-                sv_reg <= (others => (others => '0'));
             elsif tick = '1' then
                 -- Send all inputs to nm
                 for r in 0 to REF - 1 loop
                     sp_reg(r) <= to_nm(sp_i(r), INTER_SCALE);
-                end loop;
-                for r in 0 to AXES - 1 loop
-                    sv_reg(r) <= to_nm(sv_i(r), INTER_SCALE);
                 end loop;
             end if;
         end if;
@@ -216,9 +210,18 @@ begin
         exp_setp(ax) <= std_logic_vector(
             requantise(sp_reg(ax), STATE_F - EXPORT_FRAC, 32, HALF_AWAY)
         );
-        exp_setv(ax) <= std_logic_vector(
-            requantise(sv_reg(ax), STATE_F - EXPORT_FRAC, 32, HALF_AWAY)
-        );
+    end generate;
+
+    exp_setv_on : if REF >= 2 * AXES generate
+        s : for ax in 0 to AXES - 1 generate
+            exp_setv(ax) <= std_logic_vector(
+                requantise(sp_reg(AXES + ax), STATE_F - EXPORT_FRAC, 32, HALF_AWAY)
+            );
+        end generate;
+    end generate;
+
+    exp_setv_off : if REF < 2 * AXES generate
+        exp_setv <= (others => (others => '0'));
     end generate;
 
     exp_vel_on : if G_VELOCITY generate

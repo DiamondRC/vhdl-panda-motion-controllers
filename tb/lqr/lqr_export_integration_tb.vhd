@@ -38,7 +38,6 @@ architecture rtl of lqr_export_integration_td is
 
     signal pos_i : mac_data_vec(0 to AXES - 1) := (others => (others => '0'));
     signal sp_i : mac_data_vec(0 to REF - 1) := (others => (others => '0'));
-    signal sv_i : mac_data_vec(0 to AXES - 1) := (others => (others => '0'));
 
     signal wr_addr : unsigned(AW - 1 downto 0) := (others => '0');
     signal wr_data : signed(LANE_B_W - 1 downto 0) := (others => '0');
@@ -109,7 +108,6 @@ begin
             init_i => init,
             pos_i => pos_i,
             sp_i => sp_i,
-            sv_i => sv_i,
             wr_addr_i => wr_addr,
             wr_data_i => wr_data,
             wr_en_i => wr_en,
@@ -189,7 +187,7 @@ begin
         for k in 0 to AXES - 1 loop
             pos_i(k) <= pv(POS_CNT(k));
             sp_i(k) <= pv(SP_CNT(k));
-            sv_i(k) <= pv(SV_CNT(k));
+            sp_i(AXES + k) <= pv(SV_CNT(k));
         end loop;
 
         loop

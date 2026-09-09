@@ -48,6 +48,37 @@ package state_abi is
     subtype state_word is std_logic_vector(8*WORD_BYTES - 1 downto 0); -- 32-bit
     type state_word_vec is array (natural range <>) of state_word;
 
+    -- ACP write-master bundle
+    -- Bundled so the master threads one port per level up through the
+    -- PandABlocks wrappers instead of ~22 loose signals! @_@
+    type acp_mosi_t is record
+        awvalid : std_logic;
+        awaddr : std_logic_vector(31 downto 0);
+        awid : std_logic_vector(2 downto 0);
+        awlen : std_logic_vector(3 downto 0);
+        awsize : std_logic_vector(2 downto 0);
+        awburst : std_logic_vector(1 downto 0);
+        awcache : std_logic_vector(3 downto 0);
+        awuser : std_logic_vector(4 downto 0);
+        awprot : std_logic_vector(2 downto 0);
+        awlock : std_logic_vector(1 downto 0);
+        awqos : std_logic_vector(3 downto 0);
+        wvalid : std_logic;
+        wid : std_logic_vector(2 downto 0);
+        wdata : std_logic_vector(63 downto 0);
+        wstrb : std_logic_vector(7 downto 0);
+        wlast : std_logic;
+        bready : std_logic;
+    end record;
+
+    type acp_miso_t is record
+        awready : std_logic;
+        wready : std_logic;
+        bvalid : std_logic;
+        bresp : std_logic_vector(1 downto 0);
+        bid : std_logic_vector(2 downto 0);
+    end record;
+
 end package;
 
 package body state_abi is

@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
---  File:   lqr_block_dma.vhd
+--  File:   lqr_block.vhd
 --  Desc:   PandABlocks framework adapter around lqr_top.
 --  Author: richard.cunningham@diamond.ac.uk
 --------------------------------------------------------------------------------
@@ -16,9 +16,10 @@ use work.mac_utils.all;
 use work.num_utils.all;
 use work.lqr_consts.all;
 use work.cond_consts.all;
+use work.state_abi.all;
 
 
-entity lqr_block_dma is
+entity lqr_block is
     port (
         clk_i : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA Reset
@@ -26,24 +27,20 @@ entity lqr_block_dma is
         pos0_i : in std_logic_vector(31 downto 0); -- [POS0] pos_mux
         pos1_i : in std_logic_vector(31 downto 0); -- [POS1] pos_mux
         pos2_i : in std_logic_vector(31 downto 0); -- [POS2] pos_mux
-        sp0_i : in std_logic_vector(31 downto 0); -- [SP0] pos_mux
-        sp1_i : in std_logic_vector(31 downto 0); -- [SP1] pos_mux
-        sp2_i : in std_logic_vector(31 downto 0); -- [SP2] pos_mux
+        SP0_i : in std_logic_vector(31 downto 0); -- [SP0] pos_mux
+        SP1_i : in std_logic_vector(31 downto 0); -- [SP1] pos_mux
+        SP2_i : in std_logic_vector(31 downto 0); -- [SP2] pos_mux
+        SV0_i : in std_logic_vector(31 downto 0); -- [SV0] pos_mux
+        SV1_i : in std_logic_vector(31 downto 0); -- [SV1] pos_mux
+        SV2_i : in std_logic_vector(31 downto 0); -- [SV2] pos_mux
 
-        -- Table (long): host writes ADDRESS + LENGTH, block masters the read
-        GAINS_ADDRESS : in std_logic_vector(31 downto 0);
-        GAINS_ADDRESS_WSTB : in std_logic;
-        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- bytes
+        -- Table short: words stream to DATA, no address on the bus
+        GAINS_START : in std_logic_vector(31 downto 0);
+        GAINS_START_WSTB : in std_logic;
+        GAINS_DATA : in std_logic_vector(31 downto 0);
+        GAINS_DATA_WSTB : in std_logic;
+        GAINS_LENGTH : in std_logic_vector(31 downto 0); -- informational
         GAINS_LENGTH_WSTB : in std_logic;
-
-        -- DMA master bundle (wrapper binds to read engine)
-        dma_req_o : out std_logic;
-        dma_ack_i : in std_logic;
-        dma_done_i : in std_logic;
-        dma_addr_o : out std_logic_vector(31 downto 0);
-        dma_len_o : out std_logic_vector(7 downto 0); -- words
-        dma_data_i : in std_logic_vector(31 downto 0);
-        dma_valid_i : in std_logic;
 
         -- Param bit + wstb: pulse swaps the staged bank (value unused)
         COMMIT : in std_logic_vector(31 downto 0);
@@ -55,12 +52,16 @@ entity lqr_block_dma is
         u1_o : out std_logic_vector(31 downto 0); -- [U1] pos_out
         u2_o : out std_logic_vector(31 downto 0); -- [U2] pos_out
 
+        -- ACP write-master bundle (records thread one port per wrapper level)
+        m_axi_o : out acp_mosi_t;
+        m_axi_i : in acp_miso_t;
+
         u_valid_o : out std_logic
     );
 end entity;
 
 
-architecture main of lqr_block_dma is
+architecture main of lqr_block is
     -- Frozen build config
     constant AXES : positive := 3;
     constant M : positive := 3;
@@ -68,20 +69,25 @@ architecture main of lqr_block_dma is
     constant HIST_DEPTH : positive := 2;
     constant INTER_SCALE : real := 0.256; -- 256pm / count -> nm
     constant G_PHI : natural := 0;
-    constant G_VELOCITY : boolean := false;
-    constant G_PREV : boolean := false;
+    constant G_REF : natural := 6; -- 2 orders x AXES
+    constant G_VELOCITY : boolean := true;
+    constant G_PREV : boolean := true;
     constant G_UPREV : boolean := true;
     constant G_SETPOINT : boolean := true;
-    constant G_AFFINE : boolean := false;
+    constant G_AFFINE : boolean := true;
+    constant G_EXPORT : boolean := true;
+    constant BASE_ADDR : std_logic_vector(31 downto 0) := x"3FFF0000";
+    constant CHUNK : natural := 8;
 
     -- Derived
     constant N : positive := cond_width(AXES, true, G_VELOCITY, G_PREV);
-    constant GAIN_CNT : positive := M * n_int(N, M, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE);
+    constant REF : positive := resolve_ref(N, G_REF);
+    constant GAIN_CNT : positive := M * n_int(N, M, REF, G_PHI, G_UPREV, G_SETPOINT, G_AFFINE);
     constant GAIN_ADDR_W : positive := ceil_log2(GAIN_CNT);
 
     -- Signals
     signal pos_vec : mac_data_vec(0 to AXES - 1);
-    signal sp_vec : mac_data_vec(0 to N - 1);
+    signal sp_vec : mac_data_vec(0 to REF - 1);
     signal u_vec : lqr_out_vec(0 to M - 1);
     signal gen_u : unsigned(GEN_W - 1 downto 0);
 
@@ -95,13 +101,6 @@ architecture main of lqr_block_dma is
     signal fill_valid : std_logic;
     signal fill_data : std_logic_vector(31 downto 0);
 
-    -- DMA request FSM
-    type dma_state is (IDLE, REQ, STREAM, DONE);
-    signal dma_fsm : dma_state;
-    signal words : unsigned(31 downto 0); -- remaining dwords to fetch
-    signal addr : unsigned(31 downto 0); -- byte address
-    signal blen : unsigned(8 downto 0); -- this burst's length (words)
-
 begin
 
     -- State inputs: sign-extend pos bus (32b) -> lanes (42b)
@@ -109,10 +108,13 @@ begin
     pos_vec(1) <= resize(signed(pos1_i), LANE_A_W);
     pos_vec(2) <= resize(signed(pos2_i), LANE_A_W);
 
-    -- Reference r(k): setpoint block (feedforward), or tied off when unused
-    sp_vec(0) <= resize(signed(sp0_i), LANE_A_W);
-    sp_vec(1) <= resize(signed(sp1_i), LANE_A_W);
-    sp_vec(2) <= resize(signed(sp2_i), LANE_A_W);
+    -- Setpoint demands: [order0 | order1 | ...], each AXES-wide slice
+    sp_vec(0) <= resize(signed(SP0_i), LANE_A_W);
+    sp_vec(1) <= resize(signed(SP1_i), LANE_A_W);
+    sp_vec(2) <= resize(signed(SP2_i), LANE_A_W);
+    sp_vec(3) <= resize(signed(SV0_i), LANE_A_W);
+    sp_vec(4) <= resize(signed(SV1_i), LANE_A_W);
+    sp_vec(5) <= resize(signed(SV2_i), LANE_A_W);
 
     -- Control outputs: sign-extend DAC (7b) -> pos bus (32b)
     u0_o <= std_logic_vector(resize(u_vec(0), 32));
@@ -122,66 +124,10 @@ begin
     -- Generation tag: zero-extend (16b) -> readback reg (32b)
     GEN <= std_logic_vector(resize(gen_u, 32));
 
-    -- Gain-fill source: DMA stream (words land while STREAM)
-    dma_addr_o <= std_logic_vector(addr);
-    blen <= to_unsigned(256, blen'length) when words >= 256
-            else words(8 downto 0);
-    dma_len_o <= std_logic_vector(blen(7 downto 0));
-    fill_valid <= dma_valid_i when dma_fsm = STREAM else '0';
-    fill_data <= dma_data_i;
-
-    -- 
-    process(clk_i) begin
-        if rising_edge(clk_i) then
-            -- One-cycle pointer-reset pulse
-            fill_start <= '0';
-
-            if init_i = '1' then
-                dma_fsm <= IDLE;
-                dma_req_o <= '0';
-                words <= (others => '0');
-                addr <= (others => '0');
-            else
-                case dma_fsm is
-                    when IDLE =>
-                        dma_req_o <= '0';
-
-                        if GAINS_LENGTH_WSTB = '1' and unsigned(GAINS_LENGTH) >= 4 then
-                            words <= shift_right(unsigned(GAINS_LENGTH), 2); -- bytes -> dwords
-                            addr <= unsigned(GAINS_ADDRESS);
-                            fill_start <= '1'; -- reset the BRAM pointer for the load
-                            dma_fsm <= REQ;
-                        end if;
-
-                    when REQ =>
-                        dma_req_o <= '1'; -- addr + len already stable
-
-                        -- Fire the DMA stream!
-                        if dma_ack_i = '1' then
-                            dma_req_o <= '0';
-                            dma_fsm <= STREAM;
-                        end if;
-
-                    when STREAM =>
-                        -- Words flow to the seam, advance on burst done
-                        if dma_done_i = '1' then
-                            words <= words - blen;
-                            addr <= addr + shift_left(resize(blen, addr'length), 2);
-
-                            if words - blen = 0 then
-                                dma_fsm <= DONE;
-                            else
-                                dma_fsm <= REQ; -- next burst, pointer keeps counting
-                            end if;
-                        end if;
-
-                    when DONE =>
-                        dma_fsm <= IDLE; -- ready for the next load
-
-                end case;
-            end if;
-        end if;
-    end process;
+    -- Gain-fill source: register-burst stream
+    fill_start <= GAINS_START_WSTB;
+    fill_valid <= GAINS_DATA_WSTB;
+    fill_data <= GAINS_DATA;
 
     -- Gain fill FSM: word-stream -> addressed BRAM write.
     -- start resets the pointer, each valid word writes then increments.
@@ -209,10 +155,14 @@ begin
             HIST_DEPTH => HIST_DEPTH,
             INTER_SCALE => INTER_SCALE,
             G_PHI => G_PHI,
+            G_REF => G_REF,
+            G_EXPORT => G_EXPORT,
             G_VELOCITY => G_VELOCITY,
             G_PREV => G_PREV,
             G_UPREV => G_UPREV,
             G_SETPOINT => G_SETPOINT,
+            BASE_ADDR => BASE_ADDR,
+            CHUNK => CHUNK,
             G_AFFINE => G_AFFINE
         )
         port map (
@@ -226,6 +176,32 @@ begin
             commit_i => COMMIT_WSTB,
             gen_o => gen_u,
             u_o => u_vec,
+
+            m_axi_awvalid => m_axi_o.awvalid,
+            m_axi_awready => m_axi_i.awready,
+            m_axi_awaddr => m_axi_o.awaddr,
+            m_axi_awid => m_axi_o.awid,
+            m_axi_awlen => m_axi_o.awlen,
+            m_axi_awsize => m_axi_o.awsize,
+            m_axi_awburst => m_axi_o.awburst,
+            m_axi_awcache => m_axi_o.awcache,
+            m_axi_awuser => m_axi_o.awuser,
+            m_axi_awprot => m_axi_o.awprot,
+            m_axi_awlock => m_axi_o.awlock,
+            m_axi_awqos => m_axi_o.awqos,
+
+            m_axi_wvalid => m_axi_o.wvalid,
+            m_axi_wready => m_axi_i.wready,
+            m_axi_wid => m_axi_o.wid,
+            m_axi_wdata => m_axi_o.wdata,
+            m_axi_wstrb => m_axi_o.wstrb,
+            m_axi_wlast => m_axi_o.wlast,
+
+            m_axi_bvalid => m_axi_i.bvalid,
+            m_axi_bready => m_axi_o.bready,
+            m_axi_bresp => m_axi_i.bresp,
+            m_axi_bid => m_axi_i.bid,
+
             u_valid_o => u_valid_o
         );
 
