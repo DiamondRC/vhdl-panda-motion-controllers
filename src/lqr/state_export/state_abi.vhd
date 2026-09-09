@@ -48,15 +48,6 @@ package state_abi is
     subtype state_word is std_logic_vector(8*WORD_BYTES - 1 downto 0); -- 32-bit
     type state_word_vec is array (natural range <>) of state_word;
 
-    -- Idle default for elaboratation: slave never ready.
-    constant ACP_MISO_IDLE : acp_miso_t := (
-        awready => '0',
-        wready => '0',
-        bvalid => '0',
-        bresp => "00",
-        bid => "000"
-    );
-
     -- ACP write-master bundle
     -- Bundled so the master threads one port per level up through the
     -- PandABlocks wrappers instead of ~22 loose signals! @_@
@@ -87,6 +78,15 @@ package state_abi is
         bresp : std_logic_vector(1 downto 0);
         bid : std_logic_vector(2 downto 0);
     end record;
+
+    -- Idle default for elaboratation: slave never ready.
+    constant ACP_MISO_IDLE : acp_miso_t := (
+        awready => '0',
+        wready => '0',
+        bvalid => '0',
+        bresp => "00",
+        bid => "000"
+    );
 
 end package;
 
