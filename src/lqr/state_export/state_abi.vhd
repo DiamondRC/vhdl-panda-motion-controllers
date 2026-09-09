@@ -21,6 +21,7 @@ package state_abi is
     constant LINE_BYTES : natural := 32;
     constant WORDS_PER_BEAT : natural := BEAT_BYTES / WORD_BYTES; -- 2
     constant BEATS_PER_LINE : natural := LINE_BYTES / BEAT_BYTES; -- 4
+    constant EXPORT_FRAC : natural := 6; -- compromise on precision v. size
     
     -- Line 0: seq alone, so its odd/even writes stay whole-line.
     constant SEQ_OFF : natural := 0;
