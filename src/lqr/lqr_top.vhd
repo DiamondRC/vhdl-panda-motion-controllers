@@ -120,6 +120,7 @@ architecture main of lqr_top is
     signal sp_reg : mac_data_vec(0 to REF - 1);
     signal export_en : std_logic;
     signal exp_pos, exp_vel, exp_setp, exp_setv : state_word_vec(0 to AXES - 1);
+    signal sp_nm : mac_data_vec(0 to REF - 1);
 
 begin
 
@@ -185,6 +186,20 @@ begin
             u_o => u_o
         );
 
+    -- Scale the incoming interferometry to nm
+    sp_scale : for r in 0 to REF - 1 generate
+        u_sp : entity work.nm_scale
+            generic map (
+                C_W => LANE_A_W,
+                SCALE => INTER_SCALE
+            )
+            port map (
+                clk_i => clk_i,
+                c_i => sp_i(r),
+                nm_o => sp_nm(r)
+            );
+    end generate;
+
     -- Wire the SP at each tick
     -- (required since it's on a port and an LQR which
     -- has no SP term much manually reject the wire)
@@ -194,9 +209,7 @@ begin
                 sp_reg <= (others => (others => '0'));
             elsif tick = '1' then
                 -- Send all inputs to nm
-                for r in 0 to REF - 1 loop
-                    sp_reg(r) <= to_nm(sp_i(r), INTER_SCALE);
-                end loop;
+                sp_reg <= sp_nm;
             end if;
         end if;
     end process;

@@ -32,7 +32,7 @@ entity mac_array is
         N : positive := 3
     );
     port (
-        clk_i  : in std_logic; -- PandA master clock
+        clk_i : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA reset
 
         wr_addr_i : in unsigned(ceil_log2(M * N) - 1 downto 0);

@@ -163,7 +163,7 @@ def make_block_ini(c):
                 "31:0 K int", "    One Q7.25 gain word."]
     else:                                                    # tier 2: register-burst
         out += ["", "[GAINS]", "type: table short", "words: 1",
-                "lines: %d" % gain_count(c),
+                "lines: %d" % gain_count(c), "wstb: true",
                 "description: Flattened K matrix (row-major, Q7.25), "
                 "streamed into the inactive gain bank.",
                 "31:0 K int", "    One Q7.25 gain word."]

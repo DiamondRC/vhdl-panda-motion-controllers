@@ -55,6 +55,7 @@ architecture main of cond_input is
 
     signal poshist : hist_t;
     signal warm : natural range 0 to HIST_DEPTH := 0;
+    signal pos_nm : mac_data_vec(0 to AXES - 1);
 
     -- Channel-major bases
     constant VEL_BASE  : natural := AXES * boolean'pos(G_STATE);
@@ -91,6 +92,18 @@ begin
         end generate;
     end generate;
 
+    pos_scale : for ax in 0 to AXES - 1 generate
+            u_pos : entity work.nm_scale
+                generic map (
+                    C_W => LANE_A_W,
+                    SCALE => INTER_SCALE
+                )
+                port map (
+                    clk_i => clk_i,
+                    c_i => pos_i(ax),
+                    nm_o => pos_nm(ax)
+                );
+        end generate;
 
     process(clk_i) begin
         if rising_edge(clk_i) then
@@ -111,7 +124,7 @@ begin
 
                         -- kth measured position, converted to nm
                         -- TODO - plausably misses timing (42x15 mul + round)
-                        poshist(ax)(0) <= to_nm(pos_i(ax), INTER_SCALE);
+                        poshist(ax)(0) <= pos_nm(ax);
                     end loop;
 
                     -- Wait HIST_DEPTH ticks until we're ready

@@ -27,7 +27,7 @@ entity mac_engine is
         N : positive := 3
     );
     port (
-        clk_i  : in std_logic; -- PandA master clock
+        clk_i : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA reset
 
         -- BRAM Gains
@@ -61,11 +61,11 @@ architecture main of mac_engine is
     signal gain_addr : unsigned(ceil_log2(DEPTH) - 1 downto 0);
 
     -- Lane wiring
-    signal lane_a    : signed(LANE_A_W - 1 downto 0); -- State
-    signal lane_b    : signed(LANE_B_W  - 1 downto 0); -- Gains
+    signal lane_a : signed(LANE_A_W - 1 downto 0); -- State
+    signal lane_b : signed(LANE_B_W  - 1 downto 0); -- Gains
     signal lane_load : std_logic;
-    signal lane_en   : std_logic;
-    signal lane_acc  : signed(LANE_ACC_W  - 1 downto 0);
+    signal lane_en : std_logic;
+    signal lane_acc : signed(LANE_ACC_W  - 1 downto 0);
 
     -- Vector ranges
     signal row : natural range 0 to M - 1 := 0;

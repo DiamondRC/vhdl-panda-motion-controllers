@@ -63,7 +63,7 @@ entity lqr is
         G_AFFINE : boolean := false -- Is affine (K * x + affine)?
     );
     port (
-        clk_i  : in std_logic; -- PandA master clock
+        clk_i : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA reset
 
         -- Setpoint(s)
@@ -79,16 +79,16 @@ entity lqr is
             ) - 1 downto 0
         );
         wr_data_i : in  signed(LANE_B_W - 1 downto 0);
-        wr_en_i   : in  std_logic;
+        wr_en_i : in  std_logic;
 
-        commit_i  : in  std_logic;
-        gen_o     : out unsigned(GEN_W - 1 downto 0);
+        commit_i : in  std_logic;
+        gen_o : out unsigned(GEN_W - 1 downto 0);
         
         -- Live state(s)
         x_i : in mac_data_vec(0 to N - 1);
 
         start_i : in  std_logic;
-        done_o  : out std_logic;
+        done_o : out std_logic;
 
         -- Requantised, saturated control output
         u_o : out lqr_out_vec(0 to M - 1)
@@ -110,6 +110,7 @@ architecture main of lqr is
     signal done : std_logic; -- keep internal => no done_o port reading
     signal u_prev : mac_data_vec(0 to M - 1)
         := (others => (others => '0'));
+
 begin
     -- Check lane allignments/correctness
     assert state_fx'length = LANE_A_W
