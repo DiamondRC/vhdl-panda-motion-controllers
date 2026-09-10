@@ -188,7 +188,7 @@ begin
 
     -- Scale the incoming interferometry to nm
     sp_scale : for r in 0 to REF - 1 generate
-        u_sp : entity work.nm_scale
+        u_sp : entity work.nm_condition
             generic map (
                 C_W => LANE_A_W,
                 SCALE => INTER_SCALE
