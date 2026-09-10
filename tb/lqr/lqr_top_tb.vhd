@@ -241,7 +241,13 @@ begin
             commit_i => commit_i,
             gen_o => gen_o,
             u_o => u_o,
-            u_valid_o => u_valid_o
+            u_valid_o => u_valid_o,
+
+            m_axi_awready => '0',
+            m_axi_wready => '0',
+            m_axi_bvalid => '0',
+            m_axi_bresp => "00",
+            m_axi_bid => "000"
         );
 
     process
