@@ -93,7 +93,7 @@ begin
     end generate;
 
     pos_scale : for ax in 0 to AXES - 1 generate
-            u_pos : entity work.nm_condition
+            u_pos : entity work.nm_conversion
                 generic map (
                     C_W => LANE_A_W,
                     SCALE => INTER_SCALE
