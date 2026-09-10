@@ -8,6 +8,7 @@ setup_env.sh
 
 # python
 .venv
+*__pycache__*
 
 # misc
 .vscode/

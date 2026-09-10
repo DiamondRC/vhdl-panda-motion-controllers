@@ -140,6 +140,8 @@ def make_block_ini(c):
     out = [BANNER_INI, "", "[.]",
            "description: LQR / nonlinear state-feedback motion controller.",
            "entity: %s" % ent(c)]
+    if c.g_export:
+        out.append("interfaces: acp")  # bind the export master to the ACP site
     if c.dma:
         out.append("type: dma")  # switches on the DMA-master wrapper section
     out += ["",
@@ -196,8 +198,10 @@ def make_block_vhd(c):
         "use work.mac_utils.all;",
         "use work.num_utils.all;",
         "use work.lqr_consts.all;",
-        "use work.cond_consts.all;",
-        "use work.state_abi.all;", "", "",
+        "use work.cond_consts.all;"]
+    if c.g_export:
+        out.append("use work.interface_types.all;")  # acp_module view (export master)
+    out += ["", "",
         "entity %s is" % ent(c),
         "    port (",
         "        clk_i : in std_logic; -- PandA master clock",
@@ -245,10 +249,12 @@ def make_block_vhd(c):
     for k in range(c.m):
         out.append("        u%d_o : out std_logic_vector(31 downto 0); -- [U%d] pos_out" % (k, k))
 
-    out += ["",
-        "        -- ACP write-master bundle (records thread one port per wrapper level)",
-        "        m_axi_o : out acp_mosi_t;",
-        "        m_axi_i : in acp_miso_t := ACP_MISO_IDLE;", "",
+    out += [""]
+    if c.g_export:
+        out += [
+        "        -- ACP write-master (state export -> S_AXI_ACP), carried as a view",
+        "        acp : view acp_module;", ""]
+    out += [
         "        u_valid_o : out std_logic",
         "    );",
         "end entity;", "", "",
@@ -425,33 +431,42 @@ def make_block_vhd(c):
         "            wr_en_i => wr_en,",
         "            commit_i => COMMIT_WSTB,",
         "            gen_o => gen_u,",
-        "            u_o => u_vec,",
-        "",
-        "            m_axi_awvalid => m_axi_o.awvalid,",
-        "            m_axi_awready => m_axi_i.awready,",
-        "            m_axi_awaddr => m_axi_o.awaddr,",
-        "            m_axi_awid => m_axi_o.awid,",
-        "            m_axi_awlen => m_axi_o.awlen,",
-        "            m_axi_awsize => m_axi_o.awsize,",
-        "            m_axi_awburst => m_axi_o.awburst,",
-        "            m_axi_awcache => m_axi_o.awcache,",
-        "            m_axi_awuser => m_axi_o.awuser,",
-        "            m_axi_awprot => m_axi_o.awprot,",
-        "            m_axi_awlock => m_axi_o.awlock,",
-        "            m_axi_awqos => m_axi_o.awqos,",
-        "",
-        "            m_axi_wvalid => m_axi_o.wvalid,",
-        "            m_axi_wready => m_axi_i.wready,",
-        "            m_axi_wid => m_axi_o.wid,",
-        "            m_axi_wdata => m_axi_o.wdata,",
-        "            m_axi_wstrb => m_axi_o.wstrb,",
-        "            m_axi_wlast => m_axi_o.wlast,",
-        "",
-        "            m_axi_bvalid => m_axi_i.bvalid,",
-        "            m_axi_bready => m_axi_o.bready,",
-        "            m_axi_bresp => m_axi_i.bresp,",
-        "            m_axi_bid => m_axi_i.bid,",
-        "",
+        "            u_o => u_vec,", ""]
+
+    if c.g_export:
+        out += [
+        "            m_axi_awvalid => acp.awvalid,",
+        "            m_axi_awready => acp.awready,",
+        "            m_axi_awaddr => acp.awaddr,",
+        "            m_axi_awid => acp.awid,",
+        "            m_axi_awlen => acp.awlen,",
+        "            m_axi_awsize => acp.awsize,",
+        "            m_axi_awburst => acp.awburst,",
+        "            m_axi_awcache => acp.awcache,",
+        "            m_axi_awuser => acp.awuser,",
+        "            m_axi_awprot => acp.awprot,",
+        "            m_axi_awlock => acp.awlock,",
+        "            m_axi_awqos => acp.awqos,", "",
+        "            m_axi_wvalid => acp.wvalid,",
+        "            m_axi_wready => acp.wready,",
+        "            m_axi_wid => acp.wid,",
+        "            m_axi_wdata => acp.wdata,",
+        "            m_axi_wstrb => acp.wstrb,",
+        "            m_axi_wlast => acp.wlast,", "",
+        "            m_axi_bvalid => acp.bvalid,",
+        "            m_axi_bready => acp.bready,",
+        "            m_axi_bresp => acp.bresp,",
+        "            m_axi_bid => acp.bid,", ""]
+    else:
+        out += [
+        "            -- Export off: idle the master inputs, leave outputs open",
+        "            m_axi_awready => '0',",
+        "            m_axi_wready => '0',",
+        "            m_axi_bvalid => '0',",
+        "            m_axi_bresp => \"00\",",
+        "            m_axi_bid => \"000\",", ""]
+
+    out += [
         "            u_valid_o => u_valid_o",
         "        );", "",
         "end architecture main;", ""]

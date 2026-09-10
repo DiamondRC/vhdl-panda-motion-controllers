@@ -16,7 +16,7 @@ use work.mac_utils.all;
 use work.num_utils.all;
 use work.lqr_consts.all;
 use work.cond_consts.all;
-use work.state_abi.all;
+use work.interface_types.all;
 
 
 entity lqr_block is
@@ -52,9 +52,8 @@ entity lqr_block is
         u1_o : out std_logic_vector(31 downto 0); -- [U1] pos_out
         u2_o : out std_logic_vector(31 downto 0); -- [U2] pos_out
 
-        -- ACP write-master bundle (records thread one port per wrapper level)
-        m_axi_o : out acp_mosi_t;
-        m_axi_i : in acp_miso_t := ACP_MISO_IDLE;
+        -- ACP write-master (state export -> S_AXI_ACP), carried as a view
+        acp : view acp_module;
 
         u_valid_o : out std_logic
     );
@@ -177,30 +176,30 @@ begin
             gen_o => gen_u,
             u_o => u_vec,
 
-            m_axi_awvalid => m_axi_o.awvalid,
-            m_axi_awready => m_axi_i.awready,
-            m_axi_awaddr => m_axi_o.awaddr,
-            m_axi_awid => m_axi_o.awid,
-            m_axi_awlen => m_axi_o.awlen,
-            m_axi_awsize => m_axi_o.awsize,
-            m_axi_awburst => m_axi_o.awburst,
-            m_axi_awcache => m_axi_o.awcache,
-            m_axi_awuser => m_axi_o.awuser,
-            m_axi_awprot => m_axi_o.awprot,
-            m_axi_awlock => m_axi_o.awlock,
-            m_axi_awqos => m_axi_o.awqos,
+            m_axi_awvalid => acp.awvalid,
+            m_axi_awready => acp.awready,
+            m_axi_awaddr => acp.awaddr,
+            m_axi_awid => acp.awid,
+            m_axi_awlen => acp.awlen,
+            m_axi_awsize => acp.awsize,
+            m_axi_awburst => acp.awburst,
+            m_axi_awcache => acp.awcache,
+            m_axi_awuser => acp.awuser,
+            m_axi_awprot => acp.awprot,
+            m_axi_awlock => acp.awlock,
+            m_axi_awqos => acp.awqos,
 
-            m_axi_wvalid => m_axi_o.wvalid,
-            m_axi_wready => m_axi_i.wready,
-            m_axi_wid => m_axi_o.wid,
-            m_axi_wdata => m_axi_o.wdata,
-            m_axi_wstrb => m_axi_o.wstrb,
-            m_axi_wlast => m_axi_o.wlast,
+            m_axi_wvalid => acp.wvalid,
+            m_axi_wready => acp.wready,
+            m_axi_wid => acp.wid,
+            m_axi_wdata => acp.wdata,
+            m_axi_wstrb => acp.wstrb,
+            m_axi_wlast => acp.wlast,
 
-            m_axi_bvalid => m_axi_i.bvalid,
-            m_axi_bready => m_axi_o.bready,
-            m_axi_bresp => m_axi_i.bresp,
-            m_axi_bid => m_axi_i.bid,
+            m_axi_bvalid => acp.bvalid,
+            m_axi_bready => acp.bready,
+            m_axi_bresp => acp.bresp,
+            m_axi_bid => acp.bid,
 
             u_valid_o => u_valid_o
         );
