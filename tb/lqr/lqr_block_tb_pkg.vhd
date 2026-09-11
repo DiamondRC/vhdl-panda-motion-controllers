@@ -16,17 +16,21 @@ use work.cond_consts.all;
 
 package lqr_block_tb_pkg is
 
-    -- Block shape
+    -- Block shape (frozen config: velocity + prev + u_prev + setpoint x2 + affine)
     constant AXES : positive := 3;
     constant M : positive := 3;
-    constant N : positive := cond_width(AXES, true, false, false); -- no velocity
-    constant NI : positive := n_int(N, M, 0, true, true, false);
+    constant N : positive := cond_width(AXES, true, true, true); -- [ pos | vel | prev ]
+    constant REF : positive := resolve_ref(N, 6); -- 2 orders x AXES
+    constant NI : positive := n_int(N, M, REF, 0, true, true, true);
     constant GAIN_CNT : positive := M * NI;
     constant INTER_SCALE : real := 0.256;
 
-    -- Column bases in the assembled input [ pos_nm | u_prev | sp_nm ]
+    -- Column bases in [ pos | vel | prev | u_prev | setpoint | affine ]
+    constant VEL_BASE : natural := AXES;
+    constant PREV_BASE : natural := 2 * AXES;
     constant UPREV_BASE : natural := N;
     constant SP_BASE : natural := N + M;
+    constant AFFINE_BASE : natural := NI - 1;
 
     -- Flat gain memory (row-major, one Q7.25 word per entry)
     type word_vec is array (natural range <>) of std_logic_vector(31 downto 0);
@@ -45,8 +49,9 @@ package lqr_block_tb_pkg is
     function flatten(k : mac_gain_mat) return word_vec; -- row-major
 
     function servo(
-        pc : mac_data_vec; -- position counts
-        sp : mac_data_vec; -- setpoint counts
+        pc : mac_data_vec; -- current position counts
+        pp : mac_data_vec; -- previous position counts (velocity + prev)
+        sp : mac_data_vec; -- setpoint counts [ sp_pos | sp_vel ]
         k : mac_gain_mat;
         uprev : mac_data_vec
     ) return servo_res;
@@ -132,6 +137,7 @@ package body lqr_block_tb_pkg is
 
     function servo(
         pc : mac_data_vec;
+        pp : mac_data_vec;
         sp : mac_data_vec;
         k : mac_gain_mat;
         uprev : mac_data_vec
@@ -140,17 +146,20 @@ package body lqr_block_tb_pkg is
         variable acc : mac_acc_vec(0 to M - 1);
         variable res : servo_res;
     begin
-        -- [ pos_nm | u_prev | sp_nm ]  (no velocity in this block config)
+        -- [ pos | vel | prev | u_prev | setpoint | affine ]
         x := (others => (others => '0'));
-        for ax in 0 to N - 1 loop
+        for ax in 0 to AXES - 1 loop
             x(ax) := nm_gold(pc(ax));
+            x(VEL_BASE + ax) := nm_gold(pc(ax)) - nm_gold(pp(ax));
+            x(PREV_BASE + ax) := nm_gold(pp(ax));
         end loop;
         for r in 0 to M - 1 loop
             x(UPREV_BASE + r) := uprev(r);
         end loop;
-        for c in 0 to N - 1 loop
+        for c in 0 to REF - 1 loop
             x(SP_BASE + c) := nm_gold(sp(c));
         end loop;
+        x(AFFINE_BASE) := ONE_FX;
 
         for r in 0 to M - 1 loop
             acc(r) := (others => '0');
@@ -163,22 +172,35 @@ package body lqr_block_tb_pkg is
         return res;
     end function;
 
-    -- K = [ K_pos | K_uprev | K_sp ] : u = pos + 0.5*u_prev - sp
+    -- Each row r selects axis r from every block; affine adds a fixed bias.
+    -- u(r) = pos(r) + 0.25*vel(r) + 0.1*prev(r) + 0.5*u_prev(r) - sp_pos(r) + 2.0
     constant K : mac_gain_mat(0 to M - 1, 0 to NI - 1) := (
         (
             kg(1.0), kg(0.0), kg(0.0),
+            kg(0.25), kg(0.0), kg(0.0),
+            kg(0.1), kg(0.0), kg(0.0),
             kg(0.5), kg(0.0), kg(0.0),
-            kg(-1.0), kg(0.0), kg(0.0)
+            kg(-1.0), kg(0.0), kg(0.0),
+            kg(0.0), kg(0.0), kg(0.0),
+            kg(2.0)
         ),
         (
             kg(0.0), kg(1.0), kg(0.0),
+            kg(0.0), kg(0.25), kg(0.0),
+            kg(0.0), kg(0.1), kg(0.0),
             kg(0.0), kg(0.5), kg(0.0),
-            kg(0.0), kg(-1.0), kg(0.0)
+            kg(0.0), kg(-1.0), kg(0.0),
+            kg(0.0), kg(0.0), kg(0.0),
+            kg(2.0)
         ),
         (
             kg(0.0), kg(0.0), kg(1.0),
+            kg(0.0), kg(0.0), kg(0.25),
+            kg(0.0), kg(0.0), kg(0.1),
             kg(0.0), kg(0.0), kg(0.5),
-            kg(0.0), kg(0.0), kg(-1.0)
+            kg(0.0), kg(0.0), kg(-1.0),
+            kg(0.0), kg(0.0), kg(0.0),
+            kg(2.0)
         )
     );
 
