@@ -48,6 +48,8 @@ entity lqr_block is
 
         GEN : out std_logic_vector(31 downto 0); -- Read: generation tag
 
+        EXPORT_STATUS : out std_logic_vector(31 downto 0);
+
         u0_o : out std_logic_vector(31 downto 0); -- [U0] pos_out
         u1_o : out std_logic_vector(31 downto 0); -- [U1] pos_out
         u2_o : out std_logic_vector(31 downto 0); -- [U2] pos_out
@@ -100,6 +102,12 @@ architecture main of lqr_block is
     signal fill_valid : std_logic;
     signal fill_data : std_logic_vector(31 downto 0);
 
+    signal export_busy : std_logic;
+    signal export_err : std_logic;
+    signal export_overrun : std_logic;
+    signal export_err_sticky : std_logic := '0';
+    signal export_overrun_sticky : std_logic := '0';
+
 begin
 
     -- State inputs: sign-extend pos bus (32b) -> lanes (42b)
@@ -122,6 +130,25 @@ begin
 
     -- Generation tag: zero-extend (16b) -> readback reg (32b)
     GEN <= std_logic_vector(resize(gen_u, 32));
+
+    EXPORT_STATUS <= (0 => export_busy, 1 => export_err_sticky,
+                      2 => export_overrun_sticky, others => '0');
+
+    process(clk_i) begin
+        if rising_edge(clk_i) then
+            if init_i = '1' then
+                export_err_sticky <= '0';
+                export_overrun_sticky <= '0';
+            else
+                if export_err = '1' then
+                    export_err_sticky <= '1';
+                end if;
+                if export_overrun = '1' then
+                    export_overrun_sticky <= '1';
+                end if;
+            end if;
+        end if;
+    end process;
 
     -- Gain-fill source: register-burst stream
     fill_start <= GAINS_START_WSTB;
@@ -175,6 +202,10 @@ begin
             commit_i => COMMIT_WSTB,
             gen_o => gen_u,
             u_o => u_vec,
+
+            export_err_o => export_err,
+            export_busy_o => export_busy,
+            export_overrun_o => export_overrun,
 
             m_axi_awvalid => acp.awvalid,
             m_axi_awready => acp.awready,

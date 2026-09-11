@@ -43,6 +43,7 @@ entity state_export is
 
         busy_o : out std_logic; -- Export in progress?
         error_o : out std_logic; -- Issues?
+        overrun_o : out std_logic;
 
         -- Write address channel
         m_axi_awvalid : out std_logic;
@@ -101,6 +102,8 @@ architecture rtl of state_export is
 begin
     -- state of the export
     busy_o <= '0' when state = IDLE else '1';
+    overrun_o <= '1' when tick_i = '1' and valid_i = '1' and
+        export_en_i = '1' and state /= IDLE else '0';
 
     u_master : entity work.acp_write_master
         generic map (

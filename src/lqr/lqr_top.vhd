@@ -52,8 +52,8 @@ entity lqr_top is
         clk_i : in std_logic; -- PandA master clock
         init_i : in std_logic; -- PandA reset
 
-        pos_i : in  mac_data_vec(0 to AXES - 1);  -- Interferometry
-        sp_i : in  mac_data_vec( -- PandABlocks
+        pos_i : in mac_data_vec(0 to AXES - 1);  -- Interferometry
+        sp_i : in mac_data_vec( -- PandABlocks
             0 to resolve_ref(
                 cond_width(AXES, true, G_VELOCITY, G_PREV), G_REF
             ) - 1
@@ -70,16 +70,19 @@ entity lqr_top is
                 )
             ) - 1 downto 0
         );
-        wr_data_i : in  signed(LANE_B_W - 1 downto 0);
-        wr_en_i : in  std_logic;
+        wr_data_i : in signed(LANE_B_W - 1 downto 0);
+        wr_en_i : in std_logic;
 
-        commit_i : in  std_logic;
+        commit_i : in std_logic;
         gen_o : out unsigned(GEN_W - 1 downto 0);
+        export_err_o : out std_logic;
+        export_busy_o : out std_logic;
+        export_overrun_o : out std_logic;
 
         u_o : out lqr_out_vec(0 to M - 1); -- control -> DAC
 
         m_axi_awvalid : out std_logic;
-        m_axi_awready : in  std_logic;
+        m_axi_awready : in std_logic;
         m_axi_awaddr : out std_logic_vector(31 downto 0);
         m_axi_awid : out std_logic_vector(2 downto 0);
         m_axi_awlen : out std_logic_vector(3 downto 0);
@@ -98,10 +101,10 @@ entity lqr_top is
         m_axi_wstrb : out std_logic_vector(7 downto 0);
         m_axi_wlast : out std_logic;
 
-        m_axi_bvalid : in  std_logic;
+        m_axi_bvalid : in std_logic;
         m_axi_bready : out std_logic;
-        m_axi_bresp : in  std_logic_vector(1 downto 0);
-        m_axi_bid : in  std_logic_vector(2 downto 0);
+        m_axi_bresp : in std_logic_vector(1 downto 0);
+        m_axi_bid : in std_logic_vector(2 downto 0);
 
         u_valid_o : out std_logic -- = lqr.done_o, latch strobe
     );
@@ -265,8 +268,9 @@ begin
             vel_i => exp_vel,
             setp_i => exp_setp,
             setv_i => exp_setv,
-            busy_o => open,
-            error_o => open,
+            busy_o => export_busy_o,
+            error_o => export_err_o,
+            overrun_o => export_overrun_o,
 
             m_axi_awvalid => m_axi_awvalid,
             m_axi_awready => m_axi_awready,

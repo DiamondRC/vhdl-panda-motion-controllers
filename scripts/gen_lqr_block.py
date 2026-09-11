@@ -175,6 +175,10 @@ def make_block_ini(c):
             "", "[GEN]", "type: read",
             "description: Gain generation counter -- read to confirm a swap has landed."]
 
+    if c.g_export:
+        out += ["", "[EXPORT_STATUS]", "type: read",
+                "description: State export status (busy / error / overrun)."]
+
     for k in range(c.m):                                     # control outputs
         out += ["", "[U%d]" % k, "type: pos_out",
                 "description: Axis %d control output to DAC." % k]
@@ -246,6 +250,9 @@ def make_block_vhd(c):
         "        COMMIT_WSTB : in std_logic;", "",
         "        GEN : out std_logic_vector(31 downto 0); -- Read: generation tag", ""]
 
+    if c.g_export:
+        out += ["        EXPORT_STATUS : out std_logic_vector(31 downto 0);", ""]
+
     for k in range(c.m):
         out.append("        u%d_o : out std_logic_vector(31 downto 0); -- [U%d] pos_out" % (k, k))
 
@@ -294,6 +301,14 @@ def make_block_vhd(c):
         "    signal fill_valid : std_logic;",
         "    signal fill_data : std_logic_vector(31 downto 0);", ""]
 
+    if c.g_export:
+        out += [
+        "    signal export_busy : std_logic;",
+        "    signal export_err : std_logic;",
+        "    signal export_overrun : std_logic;",
+        "    signal export_err_sticky : std_logic := '0';",
+        "    signal export_overrun_sticky : std_logic := '0';", ""]
+
     if c.dma:
         out += [
         "    -- DMA request FSM",
@@ -325,6 +340,26 @@ def make_block_vhd(c):
 
     out += ["", "    -- Generation tag: zero-extend (16b) -> readback reg (32b)",
         "    GEN <= std_logic_vector(resize(gen_u, 32));", ""]
+
+    if c.g_export:
+        out += [
+        "    EXPORT_STATUS <= (0 => export_busy, 1 => export_err_sticky,",
+        "                      2 => export_overrun_sticky, others => '0');", "",
+        "    process(clk_i) begin",
+        "        if rising_edge(clk_i) then",
+        "            if init_i = '1' then",
+        "                export_err_sticky <= '0';",
+        "                export_overrun_sticky <= '0';",
+        "            else",
+        "                if export_err = '1' then",
+        "                    export_err_sticky <= '1';",
+        "                end if;",
+        "                if export_overrun = '1' then",
+        "                    export_overrun_sticky <= '1';",
+        "                end if;",
+        "            end if;",
+        "        end if;",
+        "    end process;", ""]
 
     if c.dma:
         out += [
@@ -435,6 +470,9 @@ def make_block_vhd(c):
 
     if c.g_export:
         out += [
+        "            export_err_o => export_err,",
+        "            export_busy_o => export_busy,",
+        "            export_overrun_o => export_overrun,", "",
         "            m_axi_awvalid => acp.awvalid,",
         "            m_axi_awready => acp.awready,",
         "            m_axi_awaddr => acp.awaddr,",
