@@ -17,7 +17,10 @@ architecture rtl of export_status_reg_td is
 
     signal clk : std_logic := '0';
     signal init : std_logic := '0';
-    signal busy, error, overrun : std_logic := '0';
+
+    signal busy : std_logic := '0';
+    signal err : std_logic := '0';
+    signal overrun : std_logic := '0';
     signal status : std_logic_vector(31 downto 0);
 
     signal sim_done : boolean := false;
@@ -37,7 +40,7 @@ begin
             clk_i => clk,
             init_i => init,
             busy_i => busy,
-            error_i => error,
+            error_i => err,
             overrun_i => overrun,
             status_o => status
         );
@@ -65,9 +68,9 @@ begin
         check(status(0) = '0', "bit0 did not follow busy low");
 
         -- bit1 latches on an error pulse and holds
-        error <= '1';
+        err <= '1';
         wait until rising_edge(clk);
-        error <= '0';
+        err <= '0';
         wait until rising_edge(clk);
         check(status(1) = '1', "error pulse did not latch bit1");
         for i in 0 to 3 loop

@@ -232,10 +232,13 @@ begin
             check(mem(wa + 1)(63 downto 32) = exp_word(SV_CNT(k)), "set_v mismatch");
         end loop;
 
-        -- SLVERR must propagate state_export -> lqr_top.export_err_o
+        -- Our mock latches berr per burst at the burt's start so we must
+        -- loop twice.
         berr <= '1';
-        wait until rising_edge(clk) and dut_busy = '1';
-        wait until rising_edge(clk) and dut_busy = '0';
+        for i in 0 to 1 loop
+            wait until rising_edge(clk) and dut_busy = '1';
+            wait until rising_edge(clk) and dut_busy = '0';
+        end loop;
         check(err_seen = '1', "SLVERR did not reach export_err_o");
 
         wait until rising_edge(clk);
