@@ -54,6 +54,10 @@ architecture rtl of lqr_export_integration_td is
     signal wstrb : std_logic_vector(7 downto 0);
     signal bresp : std_logic_vector(1 downto 0);
     signal bid : std_logic_vector(2 downto 0) := "000";
+    signal berr : std_logic := '0';
+    signal dut_err : std_logic;
+    signal dut_busy : std_logic;
+    signal err_seen : std_logic := '0';
 
     signal mem : word64_vec(0 to MEM_WORDS - 1);
 
@@ -115,6 +119,8 @@ begin
             gen_o => gen,
             u_o => u_o,
             u_valid_o => u_valid,
+            export_err_o => dut_err,
+            export_busy_o => dut_busy,
 
             m_axi_awvalid => awvalid,
             m_axi_awready => awready,
@@ -165,10 +171,19 @@ begin
             bresp_o => bresp,
 
             w_wait_i => 0,
-            berr_i => '0',
+            berr_i => berr,
 
             mem_o => mem
         );
+
+    err_mon : process(clk)
+    begin
+        if rising_edge(clk) then
+            if dut_err = '1' then
+                err_seen <= '1';
+            end if;
+        end if;
+    end process;
 
     stim : process
         procedure check(cond : boolean; msg : string) is
@@ -216,6 +231,12 @@ begin
             check(mem(wa + 1)(31 downto 0) = exp_word(SP_CNT(k)), "set_p mismatch");
             check(mem(wa + 1)(63 downto 32) = exp_word(SV_CNT(k)), "set_v mismatch");
         end loop;
+
+        -- SLVERR must propagate state_export -> lqr_top.export_err_o
+        berr <= '1';
+        wait until rising_edge(clk) and dut_busy = '1';
+        wait until rising_edge(clk) and dut_busy = '0';
+        check(err_seen = '1', "SLVERR did not reach export_err_o");
 
         wait until rising_edge(clk);
 

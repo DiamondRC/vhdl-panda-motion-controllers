@@ -1,6 +1,6 @@
 --------------------------------------------------------------------------------
 --  File:   lqr_block_tb_pkg.vhd
---  Desc:   Shared items for the LQR block TBs (register + DMA variants).
+--  Desc:   Shared model + helpers for the LQR block/top TBs.
 --  Author: richard.cunningham@diamond.ac.uk
 --------------------------------------------------------------------------------
 

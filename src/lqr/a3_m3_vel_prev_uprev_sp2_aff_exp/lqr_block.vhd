@@ -105,8 +105,6 @@ architecture main of lqr_block is
     signal export_busy : std_logic;
     signal export_err : std_logic;
     signal export_overrun : std_logic;
-    signal export_err_sticky : std_logic := '0';
-    signal export_overrun_sticky : std_logic := '0';
 
 begin
 
@@ -131,24 +129,15 @@ begin
     -- Generation tag: zero-extend (16b) -> readback reg (32b)
     GEN <= std_logic_vector(resize(gen_u, 32));
 
-    EXPORT_STATUS <= (0 => export_busy, 1 => export_err_sticky,
-                      2 => export_overrun_sticky, others => '0');
-
-    process(clk_i) begin
-        if rising_edge(clk_i) then
-            if init_i = '1' then
-                export_err_sticky <= '0';
-                export_overrun_sticky <= '0';
-            else
-                if export_err = '1' then
-                    export_err_sticky <= '1';
-                end if;
-                if export_overrun = '1' then
-                    export_overrun_sticky <= '1';
-                end if;
-            end if;
-        end if;
-    end process;
+    u_export_status : entity work.export_status_reg
+        port map (
+            clk_i => clk_i,
+            init_i => init_i,
+            busy_i => export_busy,
+            error_i => export_err,
+            overrun_i => export_overrun,
+            status_o => EXPORT_STATUS
+        );
 
     -- Gain-fill source: register-burst stream
     fill_start <= GAINS_START_WSTB;
