@@ -37,7 +37,7 @@ architecture rtl of state_export_td is
     signal tick, export_en, valid : std_logic := '0';
     signal pos, vel, setp, setv : state_word_vec(0 to AXES - 1) :=
         (others => (others => '0'));
-    signal busy, dut_error : std_logic;
+    signal busy, dut_error, dut_overrun : std_logic;
 
     -- Adversarial mock control
     signal w_wait : natural := 0;
@@ -64,7 +64,8 @@ architecture rtl of state_export_td is
     -- Observers
     signal saw_odd : std_logic := '0';
     signal err_seen : std_logic := '0';
-    signal aw_count : natural   := 0;
+    signal overrun_seen : std_logic := '0';
+    signal aw_count : natural := 0;
     signal aw_log : addr_vec(0 to MAX_BURSTS - 1) := (others => (others => '0'));
 
     -- Concurrent seqlock reader witnesses
@@ -137,6 +138,7 @@ begin
             setv_i => setv,
             busy_o => busy,
             error_o => dut_error,
+            overrun_o => dut_overrun,
 
             m_axi_awvalid => awvalid,
             m_axi_awready => awready,
@@ -223,6 +225,10 @@ begin
 
             if dut_error = '1' then
                 err_seen <= '1'; -- BRESP error reached the top
+            end if;
+
+            if dut_overrun = '1' then
+                overrun_seen <= '1';
             end if;
         end if;
     end process;
@@ -372,6 +378,7 @@ begin
         w_wait <= 0;
         berr <= '1';
         run_and_check(3, true);
+        check(overrun_seen = '0', "spurious overrun before the mid-export tick");
 
         -- Scenario 4: a tick mid-export is dropped, not queued
         w_wait <= 0;
@@ -387,6 +394,7 @@ begin
         wait until rising_edge(clk) and busy = '0'; -- one export finished
         wait until rising_edge(clk);
         check(aw_count - b2_base = EXP_BURSTS, "mid-export tick was not dropped");
+        check(overrun_seen = '1', "mid-export tick did not raise overrun");
 
         -- Scenario 5: reset mid-export returns cleanly to idle, then recovers
         tick <= '1';
